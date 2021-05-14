@@ -1,7 +1,11 @@
+#include <arpa/inet.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <cstring>
 #include <openssl/evp.h>
 #include <vector>
@@ -28,6 +32,12 @@ class SecureChatServer{
 
         //List of users
         static vector<User> *users;
+
+        //Setup the socket
+        void setupSocket(uint16_t port, const char *addr);
+
+        //Let the main process listen to client requests
+        void listenRequests();
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
