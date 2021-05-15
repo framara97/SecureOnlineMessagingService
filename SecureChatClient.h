@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include "constants.h"
+#include "Utility.h"
 
 class SecureChatClient{
     private:
@@ -20,12 +21,8 @@ class SecureChatClient{
         //CRL
         static X509_CRL* ca_crl;
 
-        //Port and listening IP address, in dotted notation (e.g. 192.168.1.1)
-        char address[16];
-        uint16_t port;
-        int listening_socket;
-
         //Port and IP address of the server
+        struct sockaddr_in server_addr;
         char server_address[16];
         uint16_t server_port;
         int server_socket;
@@ -39,7 +36,13 @@ class SecureChatClient{
         //Get the server CRL
         static X509_CRL* getCRL();
 
+        //Setup the server address into the sockaddr_in structure
+        void setupServerAddress(uint16_t server_port, const char *server_addr);
+
         //Setup the socket
+        void setupSocket();
+
+        //Setup the server socket
         void setupServerSocket(uint16_t server_port, const char *server_addr);
 
     public:

@@ -23,7 +23,7 @@ int main( int argc, char** argv) {
     try{
         serverPort = stoi(argv[3]);
     }catch (exception &err){
-        cout<<"The port must ne a number"<<endl;
+        cout<<"The server port must be a number"<<endl;
         return 0;
     }
     if(serverPort<=0 || serverPort>=65536){

@@ -23,6 +23,7 @@ class SecureChatServer{
         char address[16];
         uint16_t port;
         int listening_socket;
+        struct sockaddr_in server_addr;
 
         //Get the server private key
         static EVP_PKEY* getPrvKey();
@@ -34,10 +35,13 @@ class SecureChatServer{
         static vector<User> *users;
 
         //Setup the socket
-        void setupSocket(uint16_t port, const char *addr);
+        void setupSocket();
 
         //Let the main process listen to client requests
         void listenRequests();
+
+        //Send the certificate to a client
+        void sendCertificate(int process_socket, struct sockaddr_in* client_addr, int len);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
