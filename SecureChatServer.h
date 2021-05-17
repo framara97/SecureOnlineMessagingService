@@ -41,7 +41,10 @@ class SecureChatServer{
         void listenRequests();
 
         //Send the certificate to a client
-        void sendCertificate(int process_socket, struct sockaddr_in* client_addr, int len);
+        void sendCertificate(int process_socket);
+
+        //Receive authentication from user
+        void receiveAuthentication(int process_socket);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

@@ -27,6 +27,9 @@ class SecureChatClient{
         uint16_t server_port;
         int server_socket;
 
+        //Server certificate
+        X509* server_certificate;
+
         //Get the server private key
         static EVP_PKEY* getPrvKey();
 
@@ -44,6 +47,15 @@ class SecureChatClient{
 
         //Setup the server socket
         void setupServerSocket(uint16_t server_port, const char *server_addr);
+
+        //Receive server certificate
+        void receiveCertificate();
+
+        //Verify server certificate
+        void verifyCertificate();
+
+        //Authenticate user
+        void authenticateUser();
 
     public:
         //Constructor that gets the username, the server address and the server port

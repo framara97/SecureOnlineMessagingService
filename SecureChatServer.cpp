@@ -90,23 +90,48 @@ void SecureChatServer::listenRequests(){
 
         if (pid == 0){
             //Child process
-            sendCertificate(new_socket, &client_addr, addrlen);
+            //Send certificate to the new user
+            sendCertificate(new_socket);
+            cout<<"Proc. "<<getpid()<<": Certificate sent"<<endl;
+
+            //Receive authentication from the user
+            receiveAuthentication(new_socket);
 
             exit(0);
         }
     }
 }
 
-void SecureChatServer::sendCertificate(int process_socket, struct sockaddr_in* client_addr, int len){
-    uint8_t msg[BUFFER_SIZE];
-    memset(msg, 0, BUFFER_SIZE);
-	int msg_len;
+void SecureChatServer::sendCertificate(int process_socket){
 
-    //TODO: Mettere il certificato nel buffer
+    BIO* mbio = BIO_new(BIO_s_mem());
+    PEM_write_bio_X509(mbio, server_certificate);
+    char* certificate_buf = NULL;
+    long certificate_size = BIO_get_mem_data(mbio, &certificate_buf);
 	
-	if (send(process_socket, msg, msg_len, 0) < 0){
-		perror("Error in the sendto of the message containing the certificate.\n");
+	if (send(process_socket, certificate_buf, certificate_size, 0) < 0){
+		cerr<<"Proc. "<<getpid()<<": Error in the sendto of the message containing the certificate."<<endl;
 		exit(1);
 	}
+
+    BIO_free(mbio);
 	return;
+}
+
+void SecureChatServer::receiveAuthentication(int process_socket){
+    unsigned char* authentication_buf = (unsigned char*)malloc(AUTHENTICATION_MAX_SIZE);
+
+    if (recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0) < 0){
+        cerr<<"Proc. "<<getpid()<<": Error in receiving the authentication message"<<endl;
+        exit(1);
+    }
+    cout<<"Proc. "<<getpid()<<": Authentication message received"<<endl;
+    int message_type = authentication_buf[0];
+    if (message_type != 0){
+        cerr<<"Proc. "<<getpid()<<": Message type is not corresponding to 'authentication type'."<<endl;
+        exit(1);
+    }
+    int username_len = authentication_buf[1];
+    cout<<authentication_buf+2<<endl;
+    cout<<authentication_buf+2+username_len<<endl;
 }

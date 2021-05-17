@@ -15,10 +15,10 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
     //Set username
     strcpy(username, client_username);
 
-    //Read the server private key
+    //Read the client private key
     client_prvkey = getPrvKey();
 
-    //Read the server certificate
+    //Read the CA certificate
     ca_certificate = getCertificate();
 
     //Read the CRL
@@ -31,23 +31,14 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
     //Setup the server socket
     setupServerSocket(server_port, server_addr);
 
-    //Message "simeon"|prvk_simeon(digest)
-    uint8_t msg[BUFFER_SIZE];
-    msg[0] = 0; //Type = 0, request message
-    uint8_t username_len = strlen(username);
-    msg[1] = username_len;
-    strcpy((char*)(msg+2), username);
-    
-    uint8_t* signature;
-    unsigned int signature_len;
-    signature = (uint8_t*)malloc(EVP_PKEY_size(client_prvkey));
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    EVP_SignInit(ctx, EVP_sha256());
-    EVP_SignUpdate(ctx, (uint8_t*)msg, sizeof(msg));
-    EVP_SignFinal(ctx, signature, &signature_len, client_prvkey);
-    EVP_MD_CTX_free(ctx);
+    //Receive server certificate
+    receiveCertificate();
 
-    strcpy((char*)msg+3+username_len, (char*)signature);
+    //Verify server certificate
+    verifyCertificate();
+
+    //Send a message to authenticate to the server
+    authenticateUser();
 }
 
 EVP_PKEY* SecureChatClient::getPrvKey() {
@@ -96,4 +87,65 @@ void SecureChatClient::setupServerSocket(uint16_t server_port, const char *addr)
 		exit(1);
 	}
     cout<<"Connected to the server"<<endl;
+}
+
+void SecureChatClient::receiveCertificate(){
+    unsigned char* certificate_buf = (unsigned char*)malloc(CERTIFICATE_MAX_SIZE);
+
+    cout<<"Waiting for certificate"<<endl;
+    if (recv(this->server_socket, (void*)certificate_buf, CERTIFICATE_MAX_SIZE, 0) < 0){
+        cerr<<"Error in receiving the certificate"<<endl;
+        exit(1);
+    }
+    cout<<"Certificate received"<<endl;
+
+    BIO* mbio = BIO_new(BIO_s_mem());
+    BIO_write(mbio, certificate_buf, CERTIFICATE_MAX_SIZE);
+    this->server_certificate = PEM_read_bio_X509(mbio, NULL, NULL, NULL);
+    BIO_free(mbio);
+}
+
+void SecureChatClient::verifyCertificate(){
+    X509_STORE* store = X509_STORE_new();
+    X509_STORE_add_cert(store, ca_certificate);
+    X509_STORE_add_crl(store, ca_crl);
+    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
+
+    X509_STORE_CTX* ctx = X509_STORE_CTX_new();
+    X509_STORE_CTX_init(ctx, store, this->server_certificate, NULL);
+    int ret = X509_verify_cert(ctx);
+    if(ret != 1) { 
+        cerr<<"The certificate of the server is not valid"<<endl;
+        exit(1);
+    }
+    cout<<"The certificate of the server is valid"<<endl;
+    X509_STORE_CTX_free(ctx);
+    X509_STORE_free(store);
+}
+
+void SecureChatClient::authenticateUser(){
+
+    //Message 0|len|"simeon"|prvk_simeon(digest)
+    uint8_t msg[BUFFER_SIZE];
+    msg[0] = 0; //Type = 0, authentication message
+    uint8_t username_len = strlen(username); //username length on one byte
+    msg[1] = username_len;
+    strcpy((char*)(msg+2), username);
+    
+    uint8_t* signature;
+    unsigned int signature_len;
+    signature = (uint8_t*)malloc(EVP_PKEY_size(client_prvkey));
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_SignInit(ctx, EVP_sha256());
+    EVP_SignUpdate(ctx, (uint8_t*)msg, sizeof(msg));
+    EVP_SignFinal(ctx, signature, &signature_len, client_prvkey);
+    EVP_MD_CTX_free(ctx);
+
+    strcpy((char*)msg+3+username_len, (char*)signature);
+    int msg_len = 2 + username_len + signature_len;
+    
+    if (send(this->server_socket, msg, msg_len, 0) < 0){
+		perror("Error in the sendto of the authentication message.\n");
+		exit(1);
+	}
 }
