@@ -28,11 +28,14 @@ class SecureChatServer{
         //Get the server private key
         static EVP_PKEY* getPrvKey();
 
+        //Get the specified user private key
+        static EVP_PKEY* getUserKey(char* username);
+
         //Get the server certificate
         static X509* getCertificate();
 
         //List of users
-        static vector<User> *users;
+        static map<string, User> *users;
 
         //Setup the socket
         void setupSocket();
@@ -44,7 +47,12 @@ class SecureChatServer{
         void sendCertificate(int process_socket);
 
         //Receive authentication from user
-        void receiveAuthentication(int process_socket);
+        unsigned char* receiveAuthentication(int process_socket);
+
+        void handleConnection(int data_socket, sockaddr_in client_address);
+
+        //Change user status
+        void changeUserStatus(unsigned char* username, int status);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

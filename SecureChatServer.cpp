@@ -7,7 +7,7 @@
 
 EVP_PKEY* SecureChatServer::server_prvkey = NULL;
 X509* SecureChatServer::server_certificate = NULL;
-vector<User>* SecureChatServer::users = NULL;
+map<string, User>* SecureChatServer::users = NULL;
 
 SecureChatServer::SecureChatServer(const char *addr, uint16_t port, const char *user_filename) {
     /*assumes not tainted parameters. (parameters are sanitized in main function)*/
@@ -38,6 +38,14 @@ EVP_PKEY* SecureChatServer::getPrvKey() {
     return server_prvkey;
 }
 
+EVP_PKEY* SecureChatServer::getUserKey(char* username) {
+    char path[BUFFER_SIZE] = "./server/";
+    strcat(path, username);
+    strcat(path, "_pubkey.pem");
+    EVP_PKEY* username_pubkey = Utility::readPubKey(path, NULL);
+    return username_pubkey;
+}
+
 X509* SecureChatServer::getCertificate(){
     server_certificate = Utility::readCertificate("./server/server_cert.pem");
     return server_certificate;
@@ -49,19 +57,19 @@ void SecureChatServer::setupSocket(){
 	this->server_addr.sin_family = AF_INET;
 	this->server_addr.sin_port = htons(this->port);
     inet_pton(AF_INET, this->address, &this->server_addr.sin_addr);
-	cout<<"Proc. "<<getpid()<<": Socket created to receive client requests."<<endl;
+	cout<<"Thread "<<gettid()<<": Socket created to receive client requests."<<endl;
 
 	if (bind(this->listening_socket, (struct sockaddr*)&this->server_addr, sizeof(this->server_addr)) < 0){
-		cerr<<"Error in the bind"<<endl;
+		cerr<<"Thread "<<gettid()<<"Error in the bind"<<endl;
 		exit(1);
 	}
 
     if (listen(this->listening_socket, 10)){
-        cerr<<"Error in the listen"<<endl;
+        cerr<<"Thread "<<gettid()<<": Error in the listen"<<endl;
         exit(1);
     }
 
-	cout<<"Proc. "<<getpid()<<": Socket associated through bind."<<endl;
+	cout<<"Thread "<<gettid()<<": Socket associated through bind."<<endl;
 }
 
 void SecureChatServer::listenRequests(){
@@ -77,29 +85,30 @@ void SecureChatServer::listenRequests(){
         //Waiting for a client request
         new_socket = accept(this->listening_socket, (struct sockaddr*)&client_addr, &addrlen);
         if (new_socket < 0){
-            cerr<<"Error in the accept"<<endl;
+            cerr<<"Thread "<<gettid()<<"Error in the accept"<<endl;
             exit(1);
         }
-        cout<<"Proc. "<<getpid()<<": Request received by a client with address "<<inet_ntoa(client_addr.sin_addr)<<" and port "<<ntohs(client_addr.sin_port)<<endl;
-        pid = fork();
+        cout<<"Thread "<<gettid()<<": Request received by a client with address "<<inet_ntoa(client_addr.sin_addr)<<" and port "<<ntohs(client_addr.sin_port)<<endl;
 
-        if (pid < 0){
-            cerr<<"Error while creating a new child process"<<endl;
-            exit(1);
-        }
-
-        if (pid == 0){
-            //Child process
-            //Send certificate to the new user
-            sendCertificate(new_socket);
-            cout<<"Proc. "<<getpid()<<": Certificate sent"<<endl;
-
-            //Receive authentication from the user
-            receiveAuthentication(new_socket);
-
-            exit(0);
-        }
+        //Create a new thread to handle the new connection
+        thread handler (&SecureChatServer::handleConnection, this, new_socket, client_addr);
+        handler.detach();
     }
+}
+
+void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_address){
+    //Send certificate to the new user
+    sendCertificate(data_socket);
+    cout<<"Thread "<<gettid()<<": Certificate sent"<<endl;
+
+    //Receive authentication from the user
+    unsigned char* username = receiveAuthentication(data_socket);
+
+    //Change user status to active
+    int status = 1;
+    changeUserStatus(username, status);
+
+    pthread_exit(NULL);
 }
 
 void SecureChatServer::sendCertificate(int process_socket){
@@ -110,7 +119,7 @@ void SecureChatServer::sendCertificate(int process_socket){
     long certificate_size = BIO_get_mem_data(mbio, &certificate_buf);
 	
 	if (send(process_socket, certificate_buf, certificate_size, 0) < 0){
-		cerr<<"Proc. "<<getpid()<<": Error in the sendto of the message containing the certificate."<<endl;
+		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the certificate."<<endl;
 		exit(1);
 	}
 
@@ -118,20 +127,42 @@ void SecureChatServer::sendCertificate(int process_socket){
 	return;
 }
 
-void SecureChatServer::receiveAuthentication(int process_socket){
+unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
     unsigned char* authentication_buf = (unsigned char*)malloc(AUTHENTICATION_MAX_SIZE);
-
-    if (recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0) < 0){
-        cerr<<"Proc. "<<getpid()<<": Error in receiving the authentication message"<<endl;
+    int authentication_len = recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
+    if (authentication_len < 0){
+        cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
         exit(1);
     }
-    cout<<"Proc. "<<getpid()<<": Authentication message received"<<endl;
+    cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
+
     int message_type = authentication_buf[0];
     if (message_type != 0){
         cerr<<"Proc. "<<getpid()<<": Message type is not corresponding to 'authentication type'."<<endl;
         exit(1);
     }
     int username_len = authentication_buf[1];
-    cout<<authentication_buf+2<<endl;
-    cout<<authentication_buf+2+username_len<<endl;
+    unsigned char* username = (unsigned char*)malloc(username_len);
+    memcpy(username, authentication_buf+2, username_len);
+
+    int signature_len = authentication_len-3-username_len;
+    unsigned char* signature = (unsigned char*)malloc(signature_len);
+    memcpy(signature, authentication_buf+3+username_len, signature_len);
+
+    int clear_message_len = username_len+3;
+    unsigned char* clear_message = (unsigned char*)malloc(clear_message_len);
+    memcpy(clear_message, authentication_buf, clear_message_len);
+    EVP_PKEY* pubkey = getUserKey((char*)username);
+
+    int ret = Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, signature_len);
+    if(ret != 1) { 
+        cerr<<"Thread "<<gettid()<<"Authentication error"<<endl;
+        pthread_exit(NULL);
+    }
+    cout<<"Thread "<<gettid()<<": Authentication is ok"<<endl;
+    return username;
+}
+
+void SecureChatServer::changeUserStatus(unsigned char* username, int status){
+    
 }

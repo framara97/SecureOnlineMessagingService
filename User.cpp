@@ -2,7 +2,9 @@
 #include <iostream>
 #include "Utility.h"
 
-vector<User>* loadUsers(const char *filename) {
+using namespace std;
+
+map<string, User>* loadUsers(const char *filename) {
     //TODO: sanitize filename
     ifstream user_file;
     user_file.open(filename);
@@ -11,7 +13,7 @@ vector<User>* loadUsers(const char *filename) {
     }
 
     //create the data structure
-    vector<User> *user_list = new vector<User>;
+    map<string, User> *user_list = new map<string, User>;
     User current;
     char pubkey_path[USERNAME_MAXSIZE+20];
     FILE* fp;
@@ -45,7 +47,7 @@ vector<User>* loadUsers(const char *filename) {
         fclose(fp);
 
         //Insert the user in the list
-        user_list->push_back(current);
+        user_list->insert(pair<string, User>((string)current.username, current));
     }
 
 }

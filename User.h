@@ -1,5 +1,6 @@
 #include <fstream>
 #include <vector>
+#include <map>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -31,4 +32,4 @@ struct User {
 
 /*Load all registered users from a file into a vector. This will be called when the server is created.
 Return NULL in case of failure. */
-vector<User>* loadUsers(const char *filename);
+map<string, User>* loadUsers(const char *filename);

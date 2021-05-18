@@ -131,18 +131,24 @@ void SecureChatClient::authenticateUser(){
     uint8_t username_len = strlen(username); //username length on one byte
     msg[1] = username_len;
     strcpy((char*)(msg+2), username);
-    
+    int len = username_len + 3;
+
     uint8_t* signature;
     unsigned int signature_len;
-    signature = (uint8_t*)malloc(EVP_PKEY_size(client_prvkey));
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    EVP_SignInit(ctx, EVP_sha256());
-    EVP_SignUpdate(ctx, (uint8_t*)msg, sizeof(msg));
-    EVP_SignFinal(ctx, signature, &signature_len, client_prvkey);
-    EVP_MD_CTX_free(ctx);
+    Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
+    
+    //The client signs the authentication message using his/her private key
+    // uint8_t* signature;
+    // unsigned int signature_len;
+    // signature = (uint8_t*)malloc(EVP_PKEY_size(client_prvkey));
+    // EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    // EVP_SignInit(ctx, EVP_sha256());
+    // EVP_SignUpdate(ctx, (uint8_t*)msg, len);
+    // EVP_SignFinal(ctx, signature, &signature_len, client_prvkey);
+    // EVP_MD_CTX_free(ctx);
 
-    strcpy((char*)msg+3+username_len, (char*)signature);
-    int msg_len = 2 + username_len + signature_len;
+    memcpy(msg+3+username_len, signature, signature_len);
+    int msg_len = 3 + username_len + signature_len;
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		perror("Error in the sendto of the authentication message.\n");
