@@ -133,7 +133,7 @@ void SecureChatClient::authenticateUser(){
     strcpy((msg+2), username);
     int len = username_len + 3;
 
-    uint8_t* signature;
+    unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
 

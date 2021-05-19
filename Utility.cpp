@@ -79,7 +79,7 @@ X509_CRL* Utility::readCRL(string path){
     return crl;
 }
 
-int Utility::verifyMessage(EVP_PKEY* pubkey, unsigned char* clear_message, int clear_message_len, unsigned char* signature, int signature_len){
+int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, int clear_message_len, unsigned char* signature, int signature_len){
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     EVP_VerifyInit(ctx, EVP_sha256());
     EVP_VerifyUpdate(ctx, clear_message, clear_message_len);
@@ -88,11 +88,11 @@ int Utility::verifyMessage(EVP_PKEY* pubkey, unsigned char* clear_message, int c
     return ret;
 }
 
-void Utility::signMessage(EVP_PKEY* privkey, unsigned char* msg, int len, unsigned char** signature, unsigned int* signature_len){
-    *signature = (uint8_t*)malloc(EVP_PKEY_size(privkey));
+void Utility::signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char** signature, unsigned int* signature_len){
+    *signature = (unsigned char*)malloc(EVP_PKEY_size(privkey));
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     EVP_SignInit(ctx, EVP_sha256());
-    EVP_SignUpdate(ctx, (uint8_t*)msg, len);
+    EVP_SignUpdate(ctx, (unsigned char*)msg, len);
     EVP_SignFinal(ctx, *signature, &*signature_len, privkey);
     EVP_MD_CTX_free(ctx);
 }

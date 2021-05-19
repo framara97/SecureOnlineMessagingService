@@ -47,7 +47,7 @@ class SecureChatServer{
         void sendCertificate(int process_socket);
 
         //Receive authentication from user
-        unsigned char* receiveAuthentication(int process_socket);
+        char* receiveAuthentication(int process_socket);
 
         void handleConnection(int data_socket, sockaddr_in client_address);
 

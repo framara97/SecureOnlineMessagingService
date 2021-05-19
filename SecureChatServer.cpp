@@ -102,11 +102,12 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     cout<<"Thread "<<gettid()<<": Certificate sent"<<endl;
 
     //Receive authentication from the user
-    unsigned char* username = receiveAuthentication(data_socket);
+    char* username = receiveAuthentication(data_socket);
 
     //Change user status to active
     int status = 1;
     changeUserStatus(username, status);
+    printUserList();
 
     pthread_exit(NULL);
 }
@@ -127,8 +128,8 @@ void SecureChatServer::sendCertificate(int process_socket){
 	return;
 }
 
-unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
-    unsigned char* authentication_buf = (unsigned char*)malloc(AUTHENTICATION_MAX_SIZE);
+char* SecureChatServer::receiveAuthentication(int process_socket){
+    char* authentication_buf = (char*)malloc(AUTHENTICATION_MAX_SIZE);
     int authentication_len = recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
     if (authentication_len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
@@ -138,11 +139,14 @@ unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
 
     int message_type = authentication_buf[0];
     if (message_type != 0){
-        cerr<<"Proc. "<<getpid()<<": Message type is not corresponding to 'authentication type'."<<endl;
+        cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
         exit(1);
     }
     int username_len = authentication_buf[1];
-    unsigned char* username = (unsigned char*)malloc(username_len);
+    if (username_len > USERNAME_MAXSIZE){
+        cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
+    }
+    char* username = (char*)malloc(username_len);
     memcpy(username, authentication_buf+2, username_len);
 
     int signature_len = authentication_len-3-username_len;
@@ -150,7 +154,7 @@ unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
     memcpy(signature, authentication_buf+3+username_len, signature_len);
 
     int clear_message_len = username_len+3;
-    unsigned char* clear_message = (unsigned char*)malloc(clear_message_len);
+    char* clear_message = (char*)malloc(clear_message_len);
     memcpy(clear_message, authentication_buf, clear_message_len);
     EVP_PKEY* pubkey = getUserKey((char*)username);
 
@@ -160,7 +164,7 @@ unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Authentication is ok"<<endl;
-    changeUserStatus(reinterpret_cast<char*>(username), 1);
+
     return username;
 }
 
@@ -168,7 +172,6 @@ void SecureChatServer::changeUserStatus(char* username, int status){
     pthread_mutex_lock(&(*users).at(username).user_mutex);
     (*users).at(username).status = status;
     pthread_mutex_unlock(&(*users).at(username).user_mutex);
-    printUserList();
 }
 
 void SecureChatServer::printUserList(){
