@@ -126,26 +126,16 @@ void SecureChatClient::verifyCertificate(){
 void SecureChatClient::authenticateUser(){
 
     //Message 0|len|"simeon"|prvk_simeon(digest)
-    uint8_t msg[BUFFER_SIZE];
+    char msg[BUFFER_SIZE];
     msg[0] = 0; //Type = 0, authentication message
-    uint8_t username_len = strlen(username); //username length on one byte
+    char username_len = strlen(username); //username length on one byte
     msg[1] = username_len;
-    strcpy((char*)(msg+2), username);
+    strcpy((msg+2), username);
     int len = username_len + 3;
 
     uint8_t* signature;
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
-    
-    //The client signs the authentication message using his/her private key
-    // uint8_t* signature;
-    // unsigned int signature_len;
-    // signature = (uint8_t*)malloc(EVP_PKEY_size(client_prvkey));
-    // EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    // EVP_SignInit(ctx, EVP_sha256());
-    // EVP_SignUpdate(ctx, (uint8_t*)msg, len);
-    // EVP_SignFinal(ctx, signature, &signature_len, client_prvkey);
-    // EVP_MD_CTX_free(ctx);
 
     memcpy(msg+3+username_len, signature, signature_len);
     int msg_len = 3 + username_len + signature_len;

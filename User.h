@@ -28,6 +28,17 @@ struct User {
     //security fields
     EVP_PKEY* pubkey;
 
+    //Mutex used to avoid multiple simultaneous accesses
+    pthread_mutex_t user_mutex;
+
+    User(const User &user);
+
+    User();
+
+    User(const char* username, EVP_PKEY* pubkey, int socket, int status);
+
+    void printUser();
+
 };
 
 /*Load all registered users from a file into a vector. This will be called when the server is created.

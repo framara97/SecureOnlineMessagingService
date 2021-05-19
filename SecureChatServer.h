@@ -52,7 +52,9 @@ class SecureChatServer{
         void handleConnection(int data_socket, sockaddr_in client_address);
 
         //Change user status
-        void changeUserStatus(unsigned char* username, int status);
+        void changeUserStatus(char* username, int status);
+
+        void printUserList();
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

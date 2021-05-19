@@ -160,9 +160,19 @@ unsigned char* SecureChatServer::receiveAuthentication(int process_socket){
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Authentication is ok"<<endl;
+    changeUserStatus(reinterpret_cast<char*>(username), 1);
     return username;
 }
 
-void SecureChatServer::changeUserStatus(unsigned char* username, int status){
-    
+void SecureChatServer::changeUserStatus(char* username, int status){
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
+    (*users).at(username).status = status;
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    printUserList();
+}
+
+void SecureChatServer::printUserList(){
+    for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
+        it->second.printUser();
+    }
 }
