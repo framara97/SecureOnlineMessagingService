@@ -42,6 +42,7 @@ EVP_PKEY* SecureChatServer::getUserKey(char* username) {
     char path[BUFFER_SIZE] = "./server/";
     strcat(path, username);
     strcat(path, "_pubkey.pem");
+    printf("%s\n", path);
     EVP_PKEY* username_pubkey = Utility::readPubKey(path, NULL);
     return username_pubkey;
 }
@@ -109,6 +110,9 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     changeUserStatus(username, status);
     printUserList();
 
+    //Send the list of available users
+    sendAvailableUsers(data_socket, username);
+
     pthread_exit(NULL);
 }
 
@@ -137,17 +141,24 @@ char* SecureChatServer::receiveAuthentication(int process_socket){
     }
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
+    printf("%d\n", authentication_len);
+    for (int i=0; i<authentication_len; i++){
+        printf("%02hhx", authentication_buf[i]);
+    }
+    printf("\n");
+
     int message_type = authentication_buf[0];
     if (message_type != 0){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
         exit(1);
     }
     int username_len = authentication_buf[1];
-    if (username_len > USERNAME_MAXSIZE){
+    if (username_len > USERNAME_MAX_SIZE){
         cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
     }
     char* username = (char*)malloc(username_len);
-    memcpy(username, authentication_buf+2, username_len);
+    memcpy(username, authentication_buf+2, username_len+1);
+    printf("%s\n", username);
 
     int signature_len = authentication_len-3-username_len;
     unsigned char* signature = (unsigned char*)malloc(signature_len);
@@ -160,7 +171,7 @@ char* SecureChatServer::receiveAuthentication(int process_socket){
 
     int ret = Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, signature_len);
     if(ret != 1) { 
-        cerr<<"Thread "<<gettid()<<"Authentication error"<<endl;
+        cerr<<"Thread "<<gettid()<<": Authentication error"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Authentication is ok"<<endl;
@@ -178,4 +189,48 @@ void SecureChatServer::printUserList(){
     for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
         it->second.printUser();
     }
+}
+
+vector<User> SecureChatServer::getOnlineUsers(){
+    vector<User> v;
+    for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
+        if (it->second.status == 1){
+            v.push_back(it->second);
+        }
+    }
+    return v;
+}
+
+void SecureChatServer::sendAvailableUsers(int data_socket, char* username){
+    char buf[AVAILABLE_USER_MAX_SIZE];
+    buf[0] = 1;
+    vector<User> available = getOnlineUsers();
+    if (available.size() > MAX_AVAILABLE_USER_MESSAGE){
+        buf[1] = MAX_AVAILABLE_USER_MESSAGE;
+    }
+    else{
+        buf[1] = available.size();
+    }
+    int len = 2;
+    // |1|2|5|alice\0|3|bob\0| -> 14
+    for (int i = 0; i < available.size(); i++){
+        //if (strcmp(available[i].username, username)!=0){
+            buf[len] = strlen(available[i].username);
+            strcpy(buf+len+1, available[i].username);
+            len += 2 + strlen(available[i].username);
+        //}
+    }
+
+    unsigned char* signature;
+    unsigned int signature_len;
+    Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
+
+    memcpy(buf+len, signature, signature_len);
+    int msg_len = len + signature_len;
+    
+    if (send(data_socket, buf, msg_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
+		exit(1);
+	}
+
 }

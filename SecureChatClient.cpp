@@ -3,8 +3,9 @@
 #include <iostream>
 #include <thread>
 #include "Utility.h"
+#include <map>
 
-char SecureChatClient::username[USERNAME_MAXSIZE] = "";
+char SecureChatClient::username[USERNAME_MAX_SIZE] = "";
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
@@ -39,6 +40,8 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
 
     //Send a message to authenticate to the server
     authenticateUser();
+
+    receiveAvailableUsers();
 }
 
 EVP_PKEY* SecureChatClient::getPrvKey() {
@@ -141,7 +144,37 @@ void SecureChatClient::authenticateUser(){
     int msg_len = 3 + username_len + signature_len;
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
-		perror("Error in the sendto of the authentication message.\n");
+		cerr<<"Error in the sendto of the authentication message."<<endl;
 		exit(1);
 	}
+}
+
+void SecureChatClient::receiveAvailableUsers(){
+    char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
+    int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
+    if (len < 0){
+        cerr<<"Error in receiving the message containing the list of users"<<endl;
+        exit(1);
+    }
+    cout<<"Message containing the list of users received"<<endl;
+
+    int message_type = buf[0];
+    if (message_type != 1){
+        cerr<<"The message type is not corresponding to 'user list'"<<endl;
+        exit(1);
+    }
+
+    int user_number = buf[1];
+    int current_len = 2;
+    int username_len;
+    char* current_username;
+    map<int, string> users_online;
+    for (int i = 0; i < user_number; i++){
+        current_username = new char[USERNAME_MAX_SIZE];
+        username_len = buf[current_len];
+        cout<<i<<": "<<buf+current_len+1<<endl;
+        strcpy(current_username, buf+current_len+1);
+        current_len += strlen(current_username) + 2;
+        users_online.insert(pair<int, string>(0, current_username));
+    }
 }

@@ -15,16 +15,16 @@ map<string, User>* loadUsers(const char *filename) {
     //create the data structure
     map<string, User> *user_list = new map<string, User>;
     User* current;
-    char pubkey_path[USERNAME_MAXSIZE+20];
+    char pubkey_path[USERNAME_MAX_SIZE+20];
     FILE* fp;
     EVP_PKEY* read_pubkey = NULL;
-    char username[USERNAME_MAXSIZE];
+    char username[USERNAME_MAX_SIZE];
     while(1) {
         //Delete pubkey_path content
         strcpy(pubkey_path, "");
 
         //Read a new user line
-        user_file.getline(username, USERNAME_MAXSIZE);
+        user_file.getline(username, USERNAME_MAX_SIZE);
         //Check if the line exists
         if(user_file.fail() && user_file.eof()) { //in this case there are no more users to read
             return user_list;

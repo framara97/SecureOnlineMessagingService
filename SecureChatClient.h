@@ -10,7 +10,7 @@ class SecureChatClient{
     private:
 
         //Client username
-        static char username[USERNAME_MAXSIZE];
+        static char username[USERNAME_MAX_SIZE];
 
         //Client private key
         static EVP_PKEY* client_prvkey;
@@ -56,6 +56,9 @@ class SecureChatClient{
 
         //Authenticate user
         void authenticateUser();
+
+        //Receive the list of available users
+        void receiveAvailableUsers();
 
     public:
         //Constructor that gets the username, the server address and the server port

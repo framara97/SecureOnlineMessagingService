@@ -56,6 +56,11 @@ class SecureChatServer{
 
         void printUserList();
 
+        //Send the list of available users
+        void sendAvailableUsers(int data_socket, char* username);
+
+        vector<User> getOnlineUsers();
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, uint16_t port, const char *user_filename);

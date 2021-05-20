@@ -7,7 +7,7 @@ EVP_PKEY* Utility::readPrvKey(string path, void* password) {
     FILE* prvkey_file = fopen(path.c_str(), "r");
     if(!prvkey_file){
         cerr << "Error in reading private key file.."<<endl;
-        return 0;
+        exit(1);
     }
 
     //Read the private key from the given file into a EVP_PKEY structure
@@ -16,7 +16,7 @@ EVP_PKEY* Utility::readPrvKey(string path, void* password) {
     fclose(prvkey_file);
     if(!prvkey){
         cerr << "Error in reading the private key from the file"<<endl;
-        return 0;
+        exit(1);
     }
     return prvkey;
 }
@@ -24,10 +24,11 @@ EVP_PKEY* Utility::readPrvKey(string path, void* password) {
 EVP_PKEY* Utility::readPubKey(string path, void* password) {
 
     //Open the public key file in read mode
+    printf("%s\n", path.c_str());
     FILE* pubkey_file = fopen(path.c_str(), "r");
     if(!pubkey_file){
         cerr << "Error in reading public key file.."<<endl;
-        return 0;
+        exit(1);
     }
 
     //Read the public key from the given file into a EVP_PKEY structure
@@ -36,7 +37,7 @@ EVP_PKEY* Utility::readPubKey(string path, void* password) {
     fclose(pubkey_file);
     if(!pubkey){
         cerr << "Error in reading the public key from the file"<<endl;
-        return 0;
+        exit(1);
     }
     return pubkey;
 }
@@ -46,7 +47,7 @@ X509* Utility::readCertificate(string path){
     FILE* cert_file = fopen(path.c_str(), "r");
     if (!cert_file){
         cerr << "Error in reading certificate file.."<<endl;
-        return 0;
+        exit(1);
     }
     
     //Read the certificate from the given file into a X509 structure
@@ -55,7 +56,7 @@ X509* Utility::readCertificate(string path){
     fclose(cert_file);
     if(!certificate){
         cerr<<"Error in reading the certificate from the file"<<endl;
-        return 0;
+        exit(1);
     }
     return certificate;
 }
@@ -65,7 +66,7 @@ X509_CRL* Utility::readCRL(string path){
     FILE* crl_file = fopen(path.c_str(), "r");
     if (!crl_file){
         cerr << "Error in reading CRL file.."<<endl;
-        return 0;
+        exit(1);
     }
     
     //Read the CRL from the given file into a X509 structure
@@ -74,7 +75,7 @@ X509_CRL* Utility::readCRL(string path){
     fclose(crl_file);
     if(!crl){
         cerr<<"Error in reading the CRL from the file"<<endl;
-        return 0;
+        exit(1);
     }
     return crl;
 }
@@ -94,5 +95,6 @@ void Utility::signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char**
     EVP_SignInit(ctx, EVP_sha256());
     EVP_SignUpdate(ctx, (unsigned char*)msg, len);
     EVP_SignFinal(ctx, *signature, &*signature_len, privkey);
+    cout<<*signature_len<<endl;
     EVP_MD_CTX_free(ctx);
 }
