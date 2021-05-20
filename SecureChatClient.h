@@ -30,6 +30,9 @@ class SecureChatClient{
         //Server certificate
         X509* server_certificate;
 
+        //Server Public key
+        EVP_PKEY* server_pubkey;
+
         //Get the server private key
         static EVP_PKEY* getPrvKey();
 
@@ -58,7 +61,10 @@ class SecureChatClient{
         void authenticateUser();
 
         //Receive the list of available users
-        void receiveAvailableUsers();
+        string receiveAvailableUsers();
+
+        //Send request to talk to the selected user
+        void sendRTT(string selected_user);
 
     public:
         //Constructor that gets the username, the server address and the server port

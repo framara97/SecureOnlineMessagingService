@@ -61,7 +61,7 @@ void SecureChatServer::setupSocket(){
 	cout<<"Thread "<<gettid()<<": Socket created to receive client requests."<<endl;
 
 	if (bind(this->listening_socket, (struct sockaddr*)&this->server_addr, sizeof(this->server_addr)) < 0){
-		cerr<<"Thread "<<gettid()<<"Error in the bind"<<endl;
+		cerr<<"Thread "<<gettid()<<": Error in the bind"<<endl;
 		exit(1);
 	}
 
@@ -113,6 +113,9 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     //Send the list of available users
     sendAvailableUsers(data_socket, username);
 
+    //Server's thread receive the RTT message
+    receiveRTT(data_socket, username);
+
     pthread_exit(NULL);
 }
 
@@ -160,16 +163,15 @@ char* SecureChatServer::receiveAuthentication(int process_socket){
     memcpy(username, authentication_buf+2, username_len+1);
     printf("%s\n", username);
 
-    int signature_len = authentication_len-3-username_len;
-    unsigned char* signature = (unsigned char*)malloc(signature_len);
-    memcpy(signature, authentication_buf+3+username_len, signature_len);
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    memcpy(signature, authentication_buf+3+username_len, SIGNATURE_SIZE);
 
     int clear_message_len = username_len+3;
     char* clear_message = (char*)malloc(clear_message_len);
     memcpy(clear_message, authentication_buf, clear_message_len);
     EVP_PKEY* pubkey = getUserKey((char*)username);
 
-    int ret = Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, signature_len);
+    int ret = Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE);
     if(ret != 1) { 
         cerr<<"Thread "<<gettid()<<": Authentication error"<<endl;
         pthread_exit(NULL);
@@ -233,4 +235,50 @@ void SecureChatServer::sendAvailableUsers(int data_socket, char* username){
 		exit(1);
 	}
 
+}
+
+void SecureChatServer::receiveRTT(int data_socket, char* username){
+    char* buf = (char*)malloc(RTT_MAX_SIZE);
+    int len = recv(data_socket, (void*)buf, RTT_MAX_SIZE, 0);
+    if (len < 0){
+        cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl;
+        exit(1);
+    }
+    cout<<"Thread "<<gettid()<<": RTT message received"<<endl;
+
+    printf("%d\n", len);
+    for (int i=0; i<len; i++){
+        printf("%02hhx", buf[i]);
+    }
+    printf("\n");
+
+    int message_type = buf[0];
+    if (message_type != 2){
+        cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'RTT type'."<<endl;
+        exit(1);
+    }
+    int receiver_username_len = buf[1];
+    if (receiver_username_len > USERNAME_MAX_SIZE){
+        cerr<<"Thread "<<gettid()<<": Receiver Username length is over the upper bound."<<endl;
+    }
+    char* receiver_username = (char*)malloc(receiver_username_len);
+    memcpy(receiver_username, buf+2, receiver_username_len+1);
+    printf("%s\n", receiver_username);
+
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    memcpy(signature, buf + 3 + receiver_username_len, SIGNATURE_SIZE);
+
+    int clear_message_len = receiver_username_len + 3;
+    char* clear_message = (char*)malloc(clear_message_len);
+    memcpy(clear_message, buf, clear_message_len);
+    EVP_PKEY* pubkey = getUserKey((char*)username);
+
+    int ret = Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE);
+    if(ret != 1) { 
+        cerr<<"Thread "<<gettid()<<": Authentication error"<<endl;
+        pthread_exit(NULL);
+    }
+    cout<<"Thread "<<gettid()<<": Authentication is ok"<<endl;
+
+    //TODO gestire la RTT inviandola al receiver
 }

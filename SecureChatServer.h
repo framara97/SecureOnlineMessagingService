@@ -61,6 +61,9 @@ class SecureChatServer{
 
         vector<User> getOnlineUsers();
 
+        //Receive Request To Talk
+        void receiveRTT(int data_socket, char* username);
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, uint16_t port, const char *user_filename);

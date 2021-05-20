@@ -41,7 +41,11 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
     //Send a message to authenticate to the server
     authenticateUser();
 
-    receiveAvailableUsers();
+    //Print the user list and select a user to communicate with 
+    string selected_user = receiveAvailableUsers();
+
+    //Send request to talk to the selected user
+    sendRTT(selected_user);
 }
 
 EVP_PKEY* SecureChatClient::getPrvKey() {
@@ -122,6 +126,9 @@ void SecureChatClient::verifyCertificate(){
         exit(1);
     }
     cout<<"The certificate of the server is valid"<<endl;
+
+    this->server_pubkey = X509_get_pubkey(this->server_certificate);
+
     X509_STORE_CTX_free(ctx);
     X509_STORE_free(store);
 }
@@ -149,14 +156,29 @@ void SecureChatClient::authenticateUser(){
 	}
 }
 
-void SecureChatClient::receiveAvailableUsers(){
+string SecureChatClient::receiveAvailableUsers(){
     char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
     int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Error in receiving the message containing the list of users"<<endl;
         exit(1);
     }
+
     cout<<"Message containing the list of users received"<<endl;
+
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    memcpy(signature, buf + len - SIGNATURE_SIZE, SIGNATURE_SIZE);
+
+    int clear_message_len = len - SIGNATURE_SIZE;
+    char* clear_message = (char*)malloc(clear_message_len);
+    memcpy(clear_message, buf, clear_message_len);
+
+    int ret = Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE);
+    if(ret != 1) { 
+        cerr<<"Authentication error"<<endl;
+        pthread_exit(NULL);
+    }
+    cout<<"Authentication is ok"<<endl;
 
     int message_type = buf[0];
     if (message_type != 1){
@@ -164,6 +186,7 @@ void SecureChatClient::receiveAvailableUsers(){
         exit(1);
     }
 
+    cout<<"Online Users"<<endl;
     int user_number = buf[1];
     int current_len = 2;
     int username_len;
@@ -175,6 +198,41 @@ void SecureChatClient::receiveAvailableUsers(){
         cout<<i<<": "<<buf+current_len+1<<endl;
         strcpy(current_username, buf+current_len+1);
         current_len += strlen(current_username) + 2;
-        users_online.insert(pair<int, string>(0, current_username));
+        users_online.insert(pair<int, string>(i, current_username));
     }
+
+    int selected;
+    cout<<"Select the number corrisponding to the user you want to communicate with: ";
+    cin>>selected;
+    if(!cin) {exit(1);}
+
+    while(selected >= user_number){
+        cout<<"Selected user number not valid! Select another number: ";
+        cin>>selected;
+        if(!cin) {exit(1);}
+    }
+
+    return users_online.at(selected);
 }
+
+void SecureChatClient::sendRTT(string selected_user){
+    // 2 / receiver_username_len / receiver_username /0 / digest
+    char msg[BUFFER_SIZE];
+    msg[0] = 2; //Type = 2, request to talk message
+    char receiver_username_len = selected_user.length(); //receiver_username length on one byte
+    msg[1] = receiver_username_len;
+    strcpy((msg+2), selected_user.c_str());
+    int len = receiver_username_len + 3;
+
+    unsigned char* signature;
+    unsigned int signature_len;
+    Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
+
+    memcpy(msg + 3 + receiver_username_len, signature, signature_len);
+    int msg_len = 3 + receiver_username_len + signature_len;
+    
+    if (send(this->server_socket, msg, msg_len, 0) < 0){
+		cerr<<"Error in the sendto of the authentication message."<<endl;
+		exit(1);
+	}
+};
