@@ -10,7 +10,7 @@ EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
-SecureChatClient::SecureChatClient(const char* client_username, const char *server_addr, uint16_t server_port) {
+SecureChatClient::SecureChatClient(const char* client_username, const char *server_addr, int server_port) {
     /*assumes not tainted parameters. (parameters are sanitized in main function)*/
 
     //Set username
@@ -77,7 +77,7 @@ X509_CRL* SecureChatClient::getCRL(){
     return ca_crl;
 }
 
-void SecureChatClient::setupServerAddress(uint16_t port, const char *addr){
+void SecureChatClient::setupServerAddress(int port, const char *addr){
     memset(&(this->server_addr), 0, sizeof(this->server_addr));
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(server_port);
@@ -85,7 +85,7 @@ void SecureChatClient::setupServerAddress(uint16_t port, const char *addr){
 }
 
 
-void SecureChatClient::setupServerSocket(uint16_t server_port, const char *addr){
+void SecureChatClient::setupServerSocket(int server_port, const char *addr){
     this->server_socket = socket(AF_INET, SOCK_STREAM, 0);
 	setupServerAddress(server_port, addr);
 
@@ -201,18 +201,18 @@ string SecureChatClient::receiveAvailableUsers(){
         users_online.insert(pair<int, string>(i, current_username));
     }
 
-    int selected;
+    string selected;
     cout<<"Select the number corrisponding to the user you want to communicate with: ";
     cin>>selected;
     if(!cin) {exit(1);}
 
-    while(selected >= user_number){
+    while(!Utility::isNumeric(selected) || atoi(selected.c_str()) >= user_number){
         cout<<"Selected user number not valid! Select another number: ";
         cin>>selected;
         if(!cin) {exit(1);}
     }
 
-    return users_online.at(selected);
+    return users_online.at(atoi(selected.c_str()));
 }
 
 void SecureChatClient::sendRTT(string selected_user){

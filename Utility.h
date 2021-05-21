@@ -25,6 +25,8 @@ class Utility {
         static int verifyMessage(EVP_PKEY* pubkey, char* clear_message, int clear_message_len, unsigned char* signature, int signature_len);
 
         static void signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char** signature, unsigned int* signature_len);
+
+        static bool isNumeric(string str); //check is a string is composed only by digit characters
 };
 
 #endif

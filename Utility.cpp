@@ -98,3 +98,10 @@ void Utility::signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char**
     cout<<*signature_len<<endl;
     EVP_MD_CTX_free(ctx);
 }
+
+bool Utility::isNumeric(string str){
+   for (int i = 0; i < str.length(); i++)
+      if (isdigit(str[i]) == false)
+         return false;
+      return true;
+}

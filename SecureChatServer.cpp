@@ -9,8 +9,7 @@ EVP_PKEY* SecureChatServer::server_prvkey = NULL;
 X509* SecureChatServer::server_certificate = NULL;
 map<string, User>* SecureChatServer::users = NULL;
 
-SecureChatServer::SecureChatServer(const char *addr, uint16_t port, const char *user_filename) {
-    /*assumes not tainted parameters. (parameters are sanitized in main function)*/
+SecureChatServer::SecureChatServer(const char *addr, int port, const char *user_filename) {
 
     //Read the server private key
     server_prvkey = getPrvKey();
