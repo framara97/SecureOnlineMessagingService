@@ -15,16 +15,16 @@ map<string, User>* loadUsers(const char *filename) {
     //create the data structure
     map<string, User> *user_list = new map<string, User>;
     User* current;
-    char pubkey_path[USERNAME_MAX_SIZE+20];
+    char pubkey_path[USERNAME_MAX_SIZE+20]; // ./server/username_pubkey.pem
     FILE* fp;
     EVP_PKEY* read_pubkey = NULL;
-    char username[USERNAME_MAX_SIZE];
+    string username;
     while(1) {
         //Delete pubkey_path content
         strcpy(pubkey_path, "");
 
         //Read a new user line
-        user_file.getline(username, USERNAME_MAX_SIZE);
+        getline(user_file, username);
         //Check if the line exists
         if(user_file.fail() && user_file.eof()) { //in this case there are no more users to read
             return user_list;
@@ -34,9 +34,13 @@ map<string, User>* loadUsers(const char *filename) {
             return NULL;
         }
 
+        if (username.length() > USERNAME_MAX_SIZE){ //the current read username is too long 
+            continue;
+        }
+
         //Retrieve the user public key
         strcat(pubkey_path, "./server/");
-        strcat(pubkey_path, username);
+        strcat(pubkey_path, username.c_str());
         strcat(pubkey_path, "_pubkey.pem");
 
         //Read the pubkey file
@@ -51,7 +55,7 @@ map<string, User>* loadUsers(const char *filename) {
         current = new User(username, read_pubkey, 0, 0);
 
         //Insert the user in the list
-        user_list->insert( pair<string, User>((string)username, *current) );
+        user_list->insert( pair<string, User>(username, *current) );
     }
 
 }
@@ -60,17 +64,17 @@ User::User(const User &user){
     this->pubkey = user.pubkey;
     this->socket = user.socket;
     this->status = user.status;
-    strcpy(this->username, user.username);
+    this->username = user.username;
     if (pthread_mutex_init(&this->user_mutex, NULL) != 0){
         cerr<<"Error in initializing the mutex"<<endl;
     };
 }
 
-User::User(const char* username, EVP_PKEY* pubkey, int socket, int status){
+User::User(string username, EVP_PKEY* pubkey, int socket, int status){
     this->pubkey = pubkey;
     this->socket = socket;
     this->status = status;
-    strcpy(this->username, username);
+    this->username = username;
     if (pthread_mutex_init(&this->user_mutex, NULL) != 0){
         cerr<<"Error in initializing the mutex"<<endl;
     };

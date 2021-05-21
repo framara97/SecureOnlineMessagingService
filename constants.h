@@ -2,6 +2,7 @@
 #include "Utility.h"
 
 const unsigned int USERNAME_MAX_SIZE = 16;
+const unsigned int MAX_ADDRESS_SIZE = 16;
 const unsigned int MAX_USERS_TO_SEND = 64;
 
 const unsigned int BUFFER_SIZE = 1024;

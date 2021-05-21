@@ -5,16 +5,25 @@
 #include "Utility.h"
 #include <map>
 
-char SecureChatClient::username[USERNAME_MAX_SIZE] = "";
+string SecureChatClient::username;
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
-SecureChatClient::SecureChatClient(const char* client_username, const char *server_addr, int server_port) {
+SecureChatClient::SecureChatClient(string client_username, const char *server_addr, int server_port) {
     /*assumes not tainted parameters. (parameters are sanitized in main function)*/
+    if (client_username.length() > USERNAME_MAX_SIZE){
+        cerr<<"Username too long."<<endl;
+        exit(1);
+    }
+
+    cout<<strlen(server_addr)<<endl;
+    if (strlen(server_addr) >= MAX_ADDRESS_SIZE){
+        cerr<<"Server address out of bound."<<endl;
+    }
 
     //Set username
-    strcpy(username, client_username);
+    username = client_username;
 
     //Read the client private key
     client_prvkey = getPrvKey();
@@ -26,7 +35,8 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
     ca_crl = getCRL();
 
     //Set the server address and the server port in the class instance
-    strcpy(this->server_address, server_addr);
+    strncpy(this->server_address, server_addr, MAX_ADDRESS_SIZE);
+    this->server_address[MAX_ADDRESS_SIZE-1] = '\0';
     this->server_port = server_port;
 
     //Setup the server socket
@@ -51,9 +61,9 @@ SecureChatClient::SecureChatClient(const char* client_username, const char *serv
 EVP_PKEY* SecureChatClient::getPrvKey() {
     char path[BUFFER_SIZE] = "";
     strcat(path, "./client/");
-    strcat(path, username);
+    strcat(path, username.c_str());
     strcat(path, "/");
-    strcat(path, username);
+    strcat(path, username.c_str());
     strcat(path, "_key_password.pem");
     client_prvkey = Utility::readPrvKey(path, NULL);
     return client_prvkey;
@@ -62,7 +72,7 @@ EVP_PKEY* SecureChatClient::getPrvKey() {
 X509* SecureChatClient::getCertificate(){
     char path[BUFFER_SIZE] = "";
     strcat(path, "./client/");
-    strcat(path, username);
+    strcat(path, username.c_str());
     strcat(path, "/ca_cert.pem");
     ca_certificate = Utility::readCertificate(path);
     return ca_certificate;
@@ -71,7 +81,7 @@ X509* SecureChatClient::getCertificate(){
 X509_CRL* SecureChatClient::getCRL(){
     char path[BUFFER_SIZE] = "";
     strcat(path, "./client/");
-    strcat(path, username);
+    strcat(path, username.c_str());
     strcat(path, "/ca_crl.pem");
     ca_crl = Utility::readCRL(path);
     return ca_crl;
@@ -98,6 +108,10 @@ void SecureChatClient::setupServerSocket(int server_port, const char *addr){
 
 void SecureChatClient::receiveCertificate(){
     unsigned char* certificate_buf = (unsigned char*)malloc(CERTIFICATE_MAX_SIZE);
+    if (!certificate_buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
 
     cout<<"Waiting for certificate"<<endl;
     if (recv(this->server_socket, (void*)certificate_buf, CERTIFICATE_MAX_SIZE, 0) < 0){
@@ -136,19 +150,25 @@ void SecureChatClient::verifyCertificate(){
 void SecureChatClient::authenticateUser(){
 
     //Message 0|len|"simeon"|prvk_simeon(digest)
-    char msg[BUFFER_SIZE];
+    char msg[AUTHENTICATION_MAX_SIZE];
     msg[0] = 0; //Type = 0, authentication message
-    char username_len = strlen(username); //username length on one byte
+    int username_len = username.length(); //username length on one byte
     msg[1] = username_len;
-    strcpy((msg+2), username);
-    int len = username_len + 3;
+    int len = username_len + 2;
+    if (len >= AUTHENTICATION_MAX_SIZE-SIGNATURE_SIZE){
+        cerr<<"Message too long."<<endl;
+        exit(1);
+    }
+    memcpy(msg+2, username.c_str(), username_len); //TODO: Cambiare tutti gli strcpy nei messaggi in memcpy escludendo il carattere di fine stringa che e' inutile
+    //Questa funzione l'abbiamo gia' aggiustata, cambiare il server e tutte le altre anche del client togliendo i fine stringa e riducendo le posizioni a cui si accede
+    
 
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
 
-    memcpy(msg+3+username_len, signature, signature_len);
-    int msg_len = 3 + username_len + signature_len;
+    memcpy(msg+2+username_len, signature, signature_len);
+    int msg_len = 2 + username_len + signature_len;
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		cerr<<"Error in the sendto of the authentication message."<<endl;
@@ -158,6 +178,10 @@ void SecureChatClient::authenticateUser(){
 
 string SecureChatClient::receiveAvailableUsers(){
     char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
+    if (!buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
     int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Error in receiving the message containing the list of users"<<endl;
@@ -167,10 +191,18 @@ string SecureChatClient::receiveAvailableUsers(){
     cout<<"Message containing the list of users received"<<endl;
 
     unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    if (!signature){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
     memcpy(signature, buf + len - SIGNATURE_SIZE, SIGNATURE_SIZE);
 
     int clear_message_len = len - SIGNATURE_SIZE;
     char* clear_message = (char*)malloc(clear_message_len);
+    if (!clear_message){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
     memcpy(clear_message, buf, clear_message_len);
 
     int ret = Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE);
@@ -190,14 +222,14 @@ string SecureChatClient::receiveAvailableUsers(){
     int user_number = buf[1];
     int current_len = 2;
     int username_len;
-    char* current_username;
+    string current_username;
     map<int, string> users_online;
     for (int i = 0; i < user_number; i++){
-        current_username = new char[USERNAME_MAX_SIZE];
         username_len = buf[current_len];
         cout<<i<<": "<<buf+current_len+1<<endl;
-        strcpy(current_username, buf+current_len+1);
-        current_len += strlen(current_username) + 2;
+        current_username.append(buf+current_len+1);
+        cout<<current_username<<endl;
+        current_len += current_username.length() + 2;
         users_online.insert(pair<int, string>(i, current_username));
     }
 

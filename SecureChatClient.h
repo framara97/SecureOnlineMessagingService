@@ -10,7 +10,7 @@ class SecureChatClient{
     private:
 
         //Client username
-        static char username[USERNAME_MAX_SIZE];
+        static string username;
 
         //Client private key
         static EVP_PKEY* client_prvkey;
@@ -23,7 +23,7 @@ class SecureChatClient{
 
         //Port and IP address of the server
         struct sockaddr_in server_addr;
-        char server_address[16];
+        char server_address[MAX_ADDRESS_SIZE];
         int server_port;
         int server_socket;
 
@@ -68,5 +68,5 @@ class SecureChatClient{
 
     public:
         //Constructor that gets the username, the server address and the server port
-        SecureChatClient(const char* username, const char *server_addr, int server_port);
+        SecureChatClient(string username, const char *server_addr, int server_port);
 };

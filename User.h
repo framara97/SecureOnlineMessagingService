@@ -15,7 +15,7 @@ using namespace std;
 
 struct User {
     //Username of the user
-    char username[USERNAME_MAX_SIZE];
+    string username;
 
     //Socket assigned to the user
     int socket;
@@ -35,7 +35,7 @@ struct User {
 
     User();
 
-    User(const char* username, EVP_PKEY* pubkey, int socket, int status);
+    User(string username, EVP_PKEY* pubkey, int socket, int status);
 
     void printUser();
 
