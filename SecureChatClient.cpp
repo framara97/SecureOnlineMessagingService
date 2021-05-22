@@ -10,14 +10,13 @@ EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
-SecureChatClient::SecureChatClient(string client_username, const char *server_addr, int server_port) {
+SecureChatClient::SecureChatClient(string client_username, const char *server_addr, unsigned short int server_port) {
     /*assumes not tainted parameters. (parameters are sanitized in main function)*/
     if (client_username.length() > USERNAME_MAX_SIZE){
         cerr<<"Username too long."<<endl;
         exit(1);
     }
 
-    cout<<strlen(server_addr)<<endl;
     if (strlen(server_addr) >= MAX_ADDRESS_SIZE){
         cerr<<"Server address out of bound."<<endl;
     }
@@ -59,43 +58,31 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
 }
 
 EVP_PKEY* SecureChatClient::getPrvKey() {
-    char path[BUFFER_SIZE] = "";
-    strcat(path, "./client/");
-    strcat(path, username.c_str());
-    strcat(path, "/");
-    strcat(path, username.c_str());
-    strcat(path, "_key_password.pem");
-    client_prvkey = Utility::readPrvKey(path, NULL);
+    string path = "./client/" + username + "/" + username + "_key_password.pem";
+    client_prvkey = Utility::readPrvKey(path.c_str(), NULL);
     return client_prvkey;
 }
 
 X509* SecureChatClient::getCertificate(){
-    char path[BUFFER_SIZE] = "";
-    strcat(path, "./client/");
-    strcat(path, username.c_str());
-    strcat(path, "/ca_cert.pem");
-    ca_certificate = Utility::readCertificate(path);
+    string path = "./client/" + username + "/ca_cert.pem";
+    ca_certificate = Utility::readCertificate(path.c_str());
     return ca_certificate;
 }
 
 X509_CRL* SecureChatClient::getCRL(){
-    char path[BUFFER_SIZE] = "";
-    strcat(path, "./client/");
-    strcat(path, username.c_str());
-    strcat(path, "/ca_crl.pem");
-    ca_crl = Utility::readCRL(path);
+    string path = "./client/" + username + "/ca_crl.pem";
+    ca_crl = Utility::readCRL(path.c_str());
     return ca_crl;
 }
 
-void SecureChatClient::setupServerAddress(int port, const char *addr){
+void SecureChatClient::setupServerAddress(unsigned short int port, const char *addr){
     memset(&(this->server_addr), 0, sizeof(this->server_addr));
 	server_addr.sin_family = AF_INET;
 	server_addr.sin_port = htons(server_port);
 	inet_pton(AF_INET, addr, &(this->server_addr.sin_addr));
 }
 
-
-void SecureChatClient::setupServerSocket(int server_port, const char *addr){
+void SecureChatClient::setupServerSocket(unsigned short int server_port, const char *addr){
     this->server_socket = socket(AF_INET, SOCK_STREAM, 0);
 	setupServerAddress(server_port, addr);
 
@@ -134,8 +121,7 @@ void SecureChatClient::verifyCertificate(){
 
     X509_STORE_CTX* ctx = X509_STORE_CTX_new();
     X509_STORE_CTX_init(ctx, store, this->server_certificate, NULL);
-    int ret = X509_verify_cert(ctx);
-    if(ret != 1) { 
+    if(X509_verify_cert(ctx) != 1) { 
         cerr<<"The certificate of the server is not valid"<<endl;
         exit(1);
     }
@@ -152,9 +138,9 @@ void SecureChatClient::authenticateUser(){
     //Message 0|len|"simeon"|prvk_simeon(digest)
     char msg[AUTHENTICATION_MAX_SIZE];
     msg[0] = 0; //Type = 0, authentication message
-    int username_len = username.length(); //username length on one byte
+    unsigned int username_len = username.length(); //username length on one byte
     msg[1] = username_len;
-    int len = username_len + 2;
+    unsigned int len = username_len + 2;
     if (len >= AUTHENTICATION_MAX_SIZE-SIGNATURE_SIZE){
         cerr<<"Message too long."<<endl;
         exit(1);
@@ -168,7 +154,7 @@ void SecureChatClient::authenticateUser(){
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
 
     memcpy(msg+2+username_len, signature, signature_len);
-    int msg_len = 2 + username_len + signature_len;
+    unsigned int msg_len = 2 + username_len + signature_len;
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		cerr<<"Error in the sendto of the authentication message."<<endl;
@@ -182,7 +168,7 @@ string SecureChatClient::receiveAvailableUsers(){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
-    int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
+    unsigned int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Error in receiving the message containing the list of users"<<endl;
         exit(1);
@@ -197,7 +183,7 @@ string SecureChatClient::receiveAvailableUsers(){
     }
     memcpy(signature, buf + len - SIGNATURE_SIZE, SIGNATURE_SIZE);
 
-    int clear_message_len = len - SIGNATURE_SIZE;
+    unsigned int clear_message_len = len - SIGNATURE_SIZE;
     char* clear_message = (char*)malloc(clear_message_len);
     if (!clear_message){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
@@ -205,32 +191,35 @@ string SecureChatClient::receiveAvailableUsers(){
     }
     memcpy(clear_message, buf, clear_message_len);
 
-    int ret = Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE);
-    if(ret != 1) { 
+    if(Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
         cerr<<"Authentication error"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Authentication is ok"<<endl;
 
-    int message_type = buf[0];
+    unsigned int message_type = buf[0];
     if (message_type != 1){
         cerr<<"The message type is not corresponding to 'user list'"<<endl;
         exit(1);
     }
 
     cout<<"Online Users"<<endl;
-    int user_number = buf[1];
-    int current_len = 2;
-    int username_len;
-    string current_username;
-    map<int, string> users_online;
-    for (int i = 0; i < user_number; i++){
+    unsigned int user_number = buf[1];
+    unsigned int current_len = 2;
+    unsigned int username_len;
+    char current_username[USERNAME_MAX_SIZE];
+    map<unsigned int, string> users_online;
+    for (unsigned int i = 0; i < user_number; i++){
         username_len = buf[current_len];
-        cout<<i<<": "<<buf+current_len+1<<endl;
-        current_username.append(buf+current_len+1);
-        cout<<current_username<<endl;
-        current_len += current_username.length() + 2;
-        users_online.insert(pair<int, string>(i, current_username));
+        if (username_len >= USERNAME_MAX_SIZE){
+            cerr<<"The username length is too long."<<endl;
+            exit(1);
+        }
+        memcpy(current_username, buf+current_len+1, username_len);
+        current_username[username_len] = '\0';
+        cout<<i<<": "<<current_username<<endl;
+        current_len += username_len + 1;
+        users_online.insert(pair<unsigned int, string>(i, (string)current_username));
     }
 
     string selected;
@@ -248,20 +237,20 @@ string SecureChatClient::receiveAvailableUsers(){
 }
 
 void SecureChatClient::sendRTT(string selected_user){
-    // 2 / receiver_username_len / receiver_username /0 / digest
+    // 2 / receiver_username_len / receiver_username / digest
     char msg[BUFFER_SIZE];
     msg[0] = 2; //Type = 2, request to talk message
     char receiver_username_len = selected_user.length(); //receiver_username length on one byte
     msg[1] = receiver_username_len;
-    strcpy((msg+2), selected_user.c_str());
-    int len = receiver_username_len + 3;
+    memcpy((msg+2), selected_user.c_str(), receiver_username_len);
+    unsigned int len = receiver_username_len + 2;
 
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
 
-    memcpy(msg + 3 + receiver_username_len, signature, signature_len);
-    int msg_len = 3 + receiver_username_len + signature_len;
+    memcpy(msg + 2 + receiver_username_len, signature, signature_len);
+    unsigned int msg_len = 2 + receiver_username_len + signature_len;
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		cerr<<"Error in the sendto of the authentication message."<<endl;

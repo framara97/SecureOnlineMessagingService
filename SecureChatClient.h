@@ -24,7 +24,7 @@ class SecureChatClient{
         //Port and IP address of the server
         struct sockaddr_in server_addr;
         char server_address[MAX_ADDRESS_SIZE];
-        int server_port;
+        unsigned short int server_port;
         int server_socket;
 
         //Server certificate
@@ -43,13 +43,13 @@ class SecureChatClient{
         static X509_CRL* getCRL();
 
         //Setup the server address into the sockaddr_in structure
-        void setupServerAddress(int server_port, const char *server_addr);
+        void setupServerAddress(unsigned short int server_port, const char *server_addr);
 
         //Setup the socket
         void setupSocket();
 
         //Setup the server socket
-        void setupServerSocket(int server_port, const char *server_addr);
+        void setupServerSocket(unsigned short int server_port, const char *server_addr);
 
         //Receive server certificate
         void receiveCertificate();
@@ -68,5 +68,5 @@ class SecureChatClient{
 
     public:
         //Constructor that gets the username, the server address and the server port
-        SecureChatClient(string username, const char *server_addr, int server_port);
+        SecureChatClient(string username, const char *server_addr, unsigned short int server_port);
 };

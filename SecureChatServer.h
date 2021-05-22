@@ -20,8 +20,8 @@ class SecureChatServer{
         static X509* server_certificate;
 
         //Port and listening IP address, in dotted notation (e.g. 192.168.1.1)
-        char address[16];
-        int port;
+        char address[MAX_ADDRESS_SIZE];
+        unsigned short int port;
         int listening_socket;
         struct sockaddr_in server_addr;
 
@@ -52,7 +52,7 @@ class SecureChatServer{
         void handleConnection(int data_socket, sockaddr_in client_address);
 
         //Change user status
-        void changeUserStatus(string username, int status);
+        void changeUserStatus(string username, unsigned int status);
 
         void printUserList();
 
@@ -66,5 +66,5 @@ class SecureChatServer{
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
-        SecureChatServer(const char* addr, int port, const char *user_filename);
+        SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);
 };

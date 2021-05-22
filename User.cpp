@@ -70,7 +70,7 @@ User::User(const User &user){
     };
 }
 
-User::User(string username, EVP_PKEY* pubkey, int socket, int status){
+User::User(string username, EVP_PKEY* pubkey, int socket, unsigned int status){
     this->pubkey = pubkey;
     this->socket = socket;
     this->status = status;

@@ -1,7 +1,15 @@
 #include "Utility.h"
 #include <iostream>
+#include <cstring>
+#include <fstream>
 
 EVP_PKEY* Utility::readPrvKey(string path, void* password) {
+    char* canon_path = realpath(path.c_str(), NULL);
+    if(!canon_path) return NULL;
+    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    ifstream f(canon_path, ios::in);
+    free(canon_path);
+    if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
 
     //Open the private key file in read mode
     FILE* prvkey_file = fopen(path.c_str(), "r");
@@ -22,6 +30,12 @@ EVP_PKEY* Utility::readPrvKey(string path, void* password) {
 }
 
 EVP_PKEY* Utility::readPubKey(string path, void* password) {
+    char* canon_path = realpath(path.c_str(), NULL);
+    if(!canon_path) return NULL;
+    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    ifstream f(canon_path, ios::in);
+    free(canon_path);
+    if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
 
     //Open the public key file in read mode
     printf("%s\n", path.c_str());
@@ -43,6 +57,13 @@ EVP_PKEY* Utility::readPubKey(string path, void* password) {
 }
 
 X509* Utility::readCertificate(string path){
+    char* canon_path = realpath(path.c_str(), NULL);
+    if(!canon_path) return NULL;
+    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    ifstream f(canon_path, ios::in);
+    free(canon_path);
+    if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
+
     //Open the certificate file in read mode
     FILE* cert_file = fopen(path.c_str(), "r");
     if (!cert_file){
@@ -62,6 +83,13 @@ X509* Utility::readCertificate(string path){
 }
 
 X509_CRL* Utility::readCRL(string path){
+    char* canon_path = realpath(path.c_str(), NULL);
+    if(!canon_path) return NULL;
+    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    ifstream f(canon_path, ios::in);
+    free(canon_path);
+    if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
+
     //Open the CRL file in read mode
     FILE* crl_file = fopen(path.c_str(), "r");
     if (!crl_file){
@@ -80,7 +108,7 @@ X509_CRL* Utility::readCRL(string path){
     return crl;
 }
 
-int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, int clear_message_len, unsigned char* signature, int signature_len){
+int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, unsigned int clear_message_len, unsigned char* signature, unsigned int signature_len){
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     EVP_VerifyInit(ctx, EVP_sha256());
     EVP_VerifyUpdate(ctx, clear_message, clear_message_len);
@@ -89,7 +117,7 @@ int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, int clear_mess
     return ret;
 }
 
-void Utility::signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char** signature, unsigned int* signature_len){
+void Utility::signMessage(EVP_PKEY* privkey, char* msg, unsigned int len, unsigned char** signature, unsigned int* signature_len){
     *signature = (unsigned char*)malloc(EVP_PKEY_size(privkey));
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     EVP_SignInit(ctx, EVP_sha256());
@@ -100,7 +128,7 @@ void Utility::signMessage(EVP_PKEY* privkey, char* msg, int len, unsigned char**
 }
 
 bool Utility::isNumeric(string str){
-   for (int i = 0; i < str.length(); i++)
+   for (unsigned int i = 0; i < str.length(); i++)
       if (isdigit(str[i]) == false)
          return false;
       return true;

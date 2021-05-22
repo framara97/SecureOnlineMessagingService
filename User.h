@@ -35,7 +35,7 @@ struct User {
 
     User();
 
-    User(string username, EVP_PKEY* pubkey, int socket, int status);
+    User(string username, EVP_PKEY* pubkey, int socket, unsigned int status);
 
     void printUser();
 
