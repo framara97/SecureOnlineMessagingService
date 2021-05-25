@@ -9,6 +9,8 @@ EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
+//TODO: Cambiare i controlli con il buffer aggiungendo (unsigned long) prima
+
 SecureChatClient::SecureChatClient(string client_username, const char *server_addr, unsigned short int server_port) {
     if (client_username.length() > USERNAME_MAX_SIZE){
         cerr<<"Username too long."<<endl;

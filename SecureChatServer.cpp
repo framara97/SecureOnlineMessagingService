@@ -17,7 +17,7 @@ SecureChatServer::SecureChatServer(const char *addr, unsigned short int port, co
     server_certificate = getCertificate();
 
     //Set the server address and the server port in the class instance
-    strncpy(this->address, addr, MAX_ADDRESS_SIZE);
+    strncpy(this->address, addr, MAX_ADDRESS_SIZE-1);
     this->address[MAX_ADDRESS_SIZE-1] = '\0';
     this->port = port;
 
@@ -124,7 +124,7 @@ void SecureChatServer::sendCertificate(int process_socket){
 	
 	if (send(process_socket, certificate_buf, certificate_size, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the certificate."<<endl;
-		exit(1);
+		pthread_exit(NULL);
 	}
 
     BIO_free(mbio);
@@ -144,12 +144,6 @@ string SecureChatServer::receiveAuthentication(int process_socket){
     }
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
-    printf("%d\n", authentication_len);
-    for (unsigned int i=0; i<authentication_len; i++){
-        printf("%02hhx", authentication_buf[i]);
-    }
-    printf("\n");
-
     unsigned int message_type = authentication_buf[0];
     if (message_type != 0){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
@@ -160,6 +154,10 @@ string SecureChatServer::receiveAuthentication(int process_socket){
         cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
     }
     string username;
+    if (authentication_buf + 2 < authentication_buf){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
     username.append(authentication_buf+2, username_len);
 
     unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
@@ -167,9 +165,18 @@ string SecureChatServer::receiveAuthentication(int process_socket){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
-    memcpy(signature, authentication_buf+2+username_len, SIGNATURE_SIZE);
+    if (username_len + 2 < username_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    unsigned int clear_message_len = 2 + username_len;
+    if (authentication_buf + clear_message_len < authentication_buf){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
 
-    unsigned int clear_message_len = username_len+2;
+    memcpy(signature, authentication_buf+clear_message_len, SIGNATURE_SIZE);
+
     char* clear_message = (char*)malloc(clear_message_len);
     if (!clear_message){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
@@ -223,10 +230,31 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     unsigned int len = 2;
     // |1|2|5|alice|3|bob| -> 14
     for (unsigned int i = 0; i < available.size(); i++){
-        //if (strcmp(available[i].username, username)!=0){
+        //if (strcmp(available[i].username, username)!=0){ //TODO: Ricordiamoci di riattivare questo controllo
+            if (len >= AVAILABLE_USER_MAX_SIZE){
+                cerr<<"Access our-of-bound"<<endl;
+                pthread_exit(NULL);
+            }
             buf[len] = available[i].username.length();
-            memcpy(buf+len+1, available[i].username.c_str(), available[i].username.length()); //CHECK
-            len += 1 + available[i].username.length();
+            if (len + 1 == 0){
+                cerr<<"Wrap around"<<endl;
+                pthread_exit(NULL);
+            }
+            len++;
+            if (len + (unsigned long)buf < len){
+                cerr<<"Wrap around"<<endl;
+                pthread_exit(NULL);
+            }
+            if (len + available[i].username.length() < len){
+                cerr<<"Wrap around"<<endl;
+                pthread_exit(NULL);
+            }
+            if (len + available[i].username.length() >= AVAILABLE_USER_MAX_SIZE){
+                cerr<<"Access out-of-bound"<<endl;
+                pthread_exit(NULL);
+            }
+            memcpy(buf+len, available[i].username.c_str(), available[i].username.length()); //TODO: controllare se c'e' il fine stringa
+            len += available[i].username.length();
         //}
     }
 
@@ -234,12 +262,20 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     unsigned int signature_len;
     Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
 
-    memcpy(buf+len, signature, signature_len);
+    if (len + signature_len < len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    if (len + signature_len >= AVAILABLE_USER_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        pthread_exit(NULL);
+    }
     unsigned int msg_len = len + signature_len;
+    memcpy(buf+len, signature, signature_len);
     
     if (send(data_socket, buf, msg_len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
-		exit(1);
+		pthread_exit(NULL);
 	}
 
 }
@@ -248,45 +284,51 @@ void SecureChatServer::receiveRTT(int data_socket, string username){
     char* buf = (char*)malloc(RTT_MAX_SIZE);
     if (!buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     unsigned int len = recv(data_socket, (void*)buf, RTT_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": RTT message received"<<endl;
-
-    printf("%d\n", len);
-    for (unsigned int i=0; i<len; i++){
-        printf("%02hhx", buf[i]);
-    }
-    printf("\n");
 
     unsigned int message_type = buf[0];
     if (message_type != 2){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'RTT type'."<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     unsigned int receiver_username_len = buf[1];
     if (receiver_username_len > USERNAME_MAX_SIZE){
         cerr<<"Thread "<<gettid()<<": Receiver Username length is over the upper bound."<<endl;
     }
-    string receiver_username;;
-    receiver_username.append(buf+2, receiver_username_len+1);
+    string receiver_username;
+    if (receiver_username_len + 2 < receiver_username_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    unsigned int clear_message_len = receiver_username_len + 2;
+    if (clear_message_len >= RTT_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        pthread_exit(NULL);
+    }
+    receiver_username.append(buf+2, receiver_username_len);
 
     unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
     if (!signature){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
-    memcpy(signature, buf + 2 + receiver_username_len, SIGNATURE_SIZE);
+    if (clear_message_len + (unsigned long)buf < clear_message_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
 
-    unsigned int clear_message_len = receiver_username_len + 2;
     char* clear_message = (char*)malloc(clear_message_len);
     if (!clear_message){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     memcpy(clear_message, buf, clear_message_len);
     EVP_PKEY* pubkey = getUserKey(username);
