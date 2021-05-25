@@ -4,6 +4,7 @@
 #include <openssl/pem.h>
 #include <openssl/x509_vfy.h>
 #include <string>
+#include "constants.h"
 
 #ifndef CYBERSECURITYPROJECT_UTILITY_H
 #define CYBERSECURITYPROJECT_UTILITY_H
@@ -14,6 +15,8 @@ class Utility {
     private:
 
     public:
+        static const char* HOME_DIR;
+
         static EVP_PKEY* readPrvKey(string path, void* password);
 
         static EVP_PKEY* readPubKey(string path, void* password);

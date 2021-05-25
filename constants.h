@@ -1,5 +1,4 @@
 #include <string>
-#include "Utility.h"
 
 const unsigned int USERNAME_MAX_SIZE = 16;
 const unsigned int MAX_ADDRESS_SIZE = 16;

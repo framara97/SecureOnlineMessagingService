@@ -2,7 +2,6 @@
 #include <cstring>
 #include <iostream>
 #include <thread>
-#include "Utility.h"
 #include <openssl/x509.h>
 
 EVP_PKEY* SecureChatServer::server_prvkey = NULL;

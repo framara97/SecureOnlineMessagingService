@@ -7,7 +7,6 @@
 #include <cstring>
 #include <mutex>
 #include <condition_variable>
-#include "constants.h"
 #include "Utility.h"
 #include <openssl/evp.h>
 

@@ -3,10 +3,12 @@
 #include <cstring>
 #include <fstream>
 
+const char* Utility::HOME_DIR = "/home/";
+
 EVP_PKEY* Utility::readPrvKey(string path, void* password) {
     char* canon_path = realpath(path.c_str(), NULL);
     if(!canon_path) return NULL;
-    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    if(strncmp(canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(canon_path); return NULL; }
     ifstream f(canon_path, ios::in);
     free(canon_path);
     if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
@@ -32,13 +34,12 @@ EVP_PKEY* Utility::readPrvKey(string path, void* password) {
 EVP_PKEY* Utility::readPubKey(string path, void* password) {
     char* canon_path = realpath(path.c_str(), NULL);
     if(!canon_path) return NULL;
-    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    if(strncmp(canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(canon_path); return NULL; }
     ifstream f(canon_path, ios::in);
     free(canon_path);
     if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
 
     //Open the public key file in read mode
-    printf("%s\n", path.c_str());
     FILE* pubkey_file = fopen(path.c_str(), "r");
     if(!pubkey_file){
         cerr << "Error in reading public key file.."<<endl;
@@ -59,7 +60,7 @@ EVP_PKEY* Utility::readPubKey(string path, void* password) {
 X509* Utility::readCertificate(string path){
     char* canon_path = realpath(path.c_str(), NULL);
     if(!canon_path) return NULL;
-    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    if(strncmp(canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(canon_path); return NULL; }
     ifstream f(canon_path, ios::in);
     free(canon_path);
     if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
@@ -85,7 +86,7 @@ X509* Utility::readCertificate(string path){
 X509_CRL* Utility::readCRL(string path){
     char* canon_path = realpath(path.c_str(), NULL);
     if(!canon_path) return NULL;
-    if(strncmp(canon_path, "/home/", strlen("/home/")) != 0) { free(canon_path); return NULL; }
+    if(strncmp(canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(canon_path); return NULL; }
     ifstream f(canon_path, ios::in);
     free(canon_path);
     if(!f) { cerr << "Cannot open " << path << endl; return NULL; }
@@ -119,6 +120,10 @@ int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, unsigned int c
 
 void Utility::signMessage(EVP_PKEY* privkey, char* msg, unsigned int len, unsigned char** signature, unsigned int* signature_len){
     *signature = (unsigned char*)malloc(EVP_PKEY_size(privkey));
+    if (!signature){
+        cout<<"Error in the malloc for the signature"<<endl;
+        exit(1);
+    }
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
     EVP_SignInit(ctx, EVP_sha256());
     EVP_SignUpdate(ctx, (unsigned char*)msg, len);

@@ -3,7 +3,6 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <cstring>
-#include "constants.h"
 #include "Utility.h"
 
 class SecureChatClient{
