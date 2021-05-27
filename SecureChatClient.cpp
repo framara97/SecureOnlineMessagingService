@@ -9,8 +9,6 @@ EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
-//TODO: Cambiare i controlli con il buffer aggiungendo (unsigned long) prima
-
 SecureChatClient::SecureChatClient(string client_username, const char *server_addr, unsigned short int server_port) {
     if (client_username.length() > USERNAME_MAX_SIZE){
         cerr<<"Username too long."<<endl;
@@ -154,7 +152,7 @@ void SecureChatClient::authenticateUser(){
         cerr<<"Message too long."<<endl;
         exit(1);
     }
-    if (msg + 2 < msg){
+    if (2 + (unsigned long)msg < 2){
         cerr<<"Wrap around."<<endl;
         exit(1);
     }
@@ -171,7 +169,7 @@ void SecureChatClient::authenticateUser(){
         cerr<<"Message too long."<<endl;
         exit(1);
     }
-    if (msg + len < msg){
+    if (len + (unsigned long)msg < len){
         cerr<<"Wrap around."<<endl;
         exit(1);
     }
@@ -208,7 +206,7 @@ string SecureChatClient::receiveAvailableUsers(){
         exit(1);
     }
     unsigned int clear_message_len = len - SIGNATURE_SIZE;
-    if (buf + clear_message_len < buf){
+    if (clear_message_len + (unsigned long)buf < clear_message_len){
         cerr<<"Wrap around."<<endl;
         exit(1);
     }
@@ -258,7 +256,7 @@ string SecureChatClient::receiveAvailableUsers(){
             exit(1);
         }
         current_len++;
-        if (buf + current_len < buf){
+        if (current_len + (unsigned long)buf < current_len){
             cerr<<"Wrap around"<<endl;
             exit(1);
         }
@@ -302,7 +300,7 @@ void SecureChatClient::sendRTT(string selected_user){
         cerr<<"Access out-of-bound"<<endl;
         exit(1);
     }
-    if (msg + 2 < msg){
+    if (2 + (unsigned long)msg < 2){
         cerr<<"Wrap around"<<endl;
         exit(1);
     }
@@ -312,7 +310,7 @@ void SecureChatClient::sendRTT(string selected_user){
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
 
-    if (msg + len < msg){
+    if (len + (unsigned long)msg < len){
         cerr<<"Wrap around"<<endl;
         exit(1);
     }
