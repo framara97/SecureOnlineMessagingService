@@ -11,6 +11,9 @@ class SecureChatClient{
         //Client username
         static string username;
 
+        //Client choice
+        static unsigned int choice;
+
         //Client private key
         static EVP_PKEY* client_prvkey;
 
@@ -57,13 +60,22 @@ class SecureChatClient{
         void verifyCertificate();
 
         //Authenticate user
-        void authenticateUser();
+        void authenticateUser(unsigned int choice);
 
         //Receive the list of available users
         string receiveAvailableUsers();
 
         //Send request to talk to the selected user
         void sendRTT(string selected_user);
+
+        //Wait for a message from another user
+        string waitForRTT();
+
+        //Send response to RTT
+        void sendResponse(string sender_username, unsigned int response);
+
+        //Wait for response to RTT
+        void waitForResponse();
 
     public:
         //Constructor that gets the username, the server address and the server port

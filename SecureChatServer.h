@@ -47,12 +47,12 @@ class SecureChatServer{
         void sendCertificate(int process_socket);
 
         //Receive authentication from user
-        string receiveAuthentication(int process_socket);
+        string receiveAuthentication(int process_socket, unsigned int &status);
 
         void handleConnection(int data_socket, sockaddr_in client_address);
 
         //Change user status
-        void changeUserStatus(string username, unsigned int status);
+        void changeUserStatus(string username, unsigned int status, int socket);
 
         void printUserList();
 
@@ -62,7 +62,16 @@ class SecureChatServer{
         vector<User> getOnlineUsers();
 
         //Receive Request To Talk
-        void receiveRTT(int data_socket, string username);
+        string receiveRTT(int data_socket, string username);
+
+        //Forward a RTT to the final receiver
+        void forwardRTT(string receiver_username, string sender_username);
+
+        //Receive response to RTT
+        unsigned int receiveResponse(string receiver_username);
+
+        //Forward response to RTT
+        void forwardResponse(int data_socket, unsigned int response);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

@@ -5,6 +5,7 @@
 #include <map>
 
 string SecureChatClient::username;
+unsigned int SecureChatClient::choice;
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
@@ -45,15 +46,49 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     //Verify server certificate
     verifyCertificate();
 
+    cout<<"Do you want to"<<endl<<"0: Send a message?"<<endl<<"1: Receive a message?"<<endl;
+    cout<<"Select a choice: ";
+    cin>>choice;
+    while(1){
+        if(!cin){exit(1);} //controllare se !cin puo' essere messo in or con la condizione seguente
+        if(choice != 0 && choice != 1){
+            cout<<"Choice not valid! Choose 0 or 1!"<<endl;
+            cin>>choice;
+        } else break;
+    }
+
     //Send a message to authenticate to the server
-    authenticateUser();
+    authenticateUser(choice);
 
-    //Print the user list and select a user to communicate with 
-    string selected_user = receiveAvailableUsers();
+    if(choice == 0){ //client wants to send a message
+        //Print the user list and select a user to communicate with 
+        string selected_user = receiveAvailableUsers();
 
-    //Send request to talk to the selected user
-    sendRTT(selected_user);
-}
+        //Send request to talk to the selected user
+        sendRTT(selected_user);
+
+        //Wait fot the answer to the previous RTT
+        waitForResponse();
+    } else if(choice == 1){ //client wants to receive a message
+        string sender_username = waitForRTT();
+
+        cout<<"Authentication is ok"<<endl;
+        unsigned int response;
+        //TODO: accept or refuse RTT
+        cout<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"0: Refuse"<<endl<<"1: Accept"<<endl;
+        cout<<"Select a choice: ";
+        cin>>response;
+        while(1){
+            if(!cin){exit(1);} //controllare se !cin puo' essere messo in or con la condizione seguente
+            if(response != 0 && response != 1){
+                cout<<"Choice not valid! Choose 0 or 1!"<<endl;
+                cin>>response;
+            } else break;
+        }
+
+        sendResponse(sender_username, response);
+    }
+};
 
 EVP_PKEY* SecureChatClient::getPrvKey() {
     string path = "./client/" + username + "/" + username + "_key_password.pem";
@@ -131,16 +166,16 @@ void SecureChatClient::verifyCertificate(){
     X509_STORE_free(store);
 }
 
-void SecureChatClient::authenticateUser(){
+void SecureChatClient::authenticateUser(unsigned int choice){
 
     if (username.length() >= USERNAME_MAX_SIZE){
         cerr<<"Username length too large."<<endl;
         exit(1);
     }
 
-    //Message 0|len|"simeon"|prvk_simeon(digest)
+    //Message choice(0,1)|len|"simeon"|prvk_simeon(digest)
     char msg[AUTHENTICATION_MAX_SIZE];
-    msg[0] = 0; //Type = 0, authentication message
+    msg[0] = choice; //Type = choice(0,1), authentication message with 0 to send message or 1 to receive message
     unsigned int username_len = username.length(); //if username length is less than 16, it can stay on one byte
     msg[1] = username_len;
     if (username_len + 2 < username_len){
@@ -229,7 +264,7 @@ string SecureChatClient::receiveAvailableUsers(){
         exit(1);
     }
     unsigned int message_type = buf[0];
-    if (message_type != 1){
+    if (message_type != 2){
         cerr<<"The message type is not corresponding to 'user list'"<<endl;
         exit(1);
     }
@@ -239,7 +274,7 @@ string SecureChatClient::receiveAvailableUsers(){
     unsigned int current_len = 2;
     unsigned int username_len;
     char current_username[USERNAME_MAX_SIZE];
-    // 1 | 2 | 6 | simeon | 5 | mbala
+    // 2 | 2 | 6 | simeon | 5 | mbala
     map<unsigned int, string> users_online;
     for (unsigned int i = 0; i < user_number; i++){
         if (current_len >= AVAILABLE_USER_MAX_SIZE){
@@ -286,9 +321,9 @@ string SecureChatClient::receiveAvailableUsers(){
 }
 
 void SecureChatClient::sendRTT(string selected_user){
-    // 2 / receiver_username_len / receiver_username / digest
-    char msg[BUFFER_SIZE];
-    msg[0] = 2; //Type = 2, request to talk message
+    // 3 | receiver_username_len | receiver_username | digest
+    char msg[RTT_MAX_SIZE];
+    msg[0] = 3; //Type = 3, request to talk message
     char receiver_username_len = selected_user.length(); //receiver_username length on one byte
     msg[1] = receiver_username_len;
     if (receiver_username_len + 2 < receiver_username_len){
@@ -296,7 +331,7 @@ void SecureChatClient::sendRTT(string selected_user){
         exit(1);
     }
     unsigned int len = receiver_username_len + 2;
-    if (len >= BUFFER_SIZE){
+    if (len >= RTT_MAX_SIZE){
         cerr<<"Access out-of-bound"<<endl;
         exit(1);
     }
@@ -319,7 +354,7 @@ void SecureChatClient::sendRTT(string selected_user){
         exit(1);
     }
     unsigned int msg_len = len + signature_len;
-    if (msg_len >= BUFFER_SIZE){
+    if (msg_len >= RTT_MAX_SIZE){
         cerr<<"Access out-of-bound"<<endl;
         exit(1);
     }
@@ -329,4 +364,163 @@ void SecureChatClient::sendRTT(string selected_user){
 		cerr<<"Error in the sendto of the authentication message."<<endl;
 		exit(1);
 	}
+};
+
+string SecureChatClient::waitForRTT(){
+    // 3 | receiver_username_len | receiver_username | digest
+    char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
+    if (!buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
+
+    cout<<"Waiting for RTT..."<<endl;
+    unsigned int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
+    cout<<len<<endl;
+    if (len < 0){
+        cerr<<"Error in receiving a RTT from another user"<<endl;
+        exit(1);
+    }
+    cout<<"RTT received!"<<endl;
+
+    unsigned int message_type = buf[0];
+    if (message_type != 3){
+        cerr<<"Message type is not corresponding to 'RTT type'."<<endl;
+        pthread_exit(NULL);
+    }
+    unsigned int sender_username_len = buf[1];
+    if (sender_username_len > USERNAME_MAX_SIZE){
+        cerr<<"Receiver Username length is over the upper bound."<<endl;
+    }
+    string sender_username;
+    if (sender_username_len + 2 < sender_username_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    unsigned int clear_message_len = sender_username_len + 2;
+    if (clear_message_len >= RTT_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        pthread_exit(NULL);
+    }
+    sender_username.append(buf+2, sender_username_len);
+
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    if (!signature){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        pthread_exit(NULL);
+    }
+    if (clear_message_len + (unsigned long)buf < clear_message_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
+
+    char* clear_message = (char*)malloc(clear_message_len);
+    if (!clear_message){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        pthread_exit(NULL);
+    }
+    memcpy(clear_message, buf, clear_message_len);
+
+    if(Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error"<<endl;
+        pthread_exit(NULL);
+    }
+
+    return sender_username;
+};
+
+void SecureChatClient::sendResponse(string sender_username, unsigned int response){
+    // 4 | response | digest
+    char msg[RESPONSE_MAX_SIZE];
+    msg[0] = 4; //Type = 4, response to request to talk message
+    msg[1] = response;
+
+    unsigned int len = 2;
+    if (len >= RESPONSE_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        exit(1);
+    }
+
+    unsigned char* signature;
+    unsigned int signature_len;
+    Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
+
+    if (len + (unsigned long)msg < len){
+        cerr<<"Wrap around"<<endl;
+        exit(1);
+    }
+    if (len + signature_len < len){
+        cerr<<"Wrap around"<<endl;
+        exit(1);
+    }
+    unsigned int msg_len = len + signature_len;
+    if (msg_len > RESPONSE_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        exit(1);
+    }
+    memcpy(msg + len, signature, signature_len);
+    
+    if (send(this->server_socket, msg, msg_len, 0) < 0){
+		cerr<<"Error in the sendto of the Response to RTT message."<<endl;
+		exit(1);
+	}
+
+    cout<<"Sending Response to RTT equal to "<<response<<endl;
+};
+
+void SecureChatClient::waitForResponse(){
+    // 4 | response | digest
+    char* buf = (char*)malloc(RESPONSE_MAX_SIZE);
+    if (!buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
+
+    cout<<"Waiting for Response to RTT..."<<endl;
+    unsigned int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
+    cout<<len<<endl;
+    if (len < 0){
+        cerr<<"Error in receiving a Response RTT from another user"<<endl;
+        exit(1);
+    }
+    cout<<"Response to RTT received!"<<endl;
+
+    unsigned int message_type = buf[0];
+    if (message_type != 4){
+        cerr<<"Message type is not corresponding to 'Response RTT type'."<<endl;
+        pthread_exit(NULL);
+    }
+    unsigned int response = buf[1];
+
+    unsigned int clear_message_len = 2;
+    if (clear_message_len >= RESPONSE_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        pthread_exit(NULL);
+    }
+
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    if (!signature){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        pthread_exit(NULL);
+    }
+    if (clear_message_len + (unsigned long)buf < clear_message_len){
+        cerr<<"Wrap around"<<endl;
+        pthread_exit(NULL);
+    }
+    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
+
+    char* clear_message = (char*)malloc(clear_message_len);
+    if (!clear_message){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        pthread_exit(NULL);
+    }
+    memcpy(clear_message, buf, clear_message_len);
+
+    if(Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error"<<endl;
+        pthread_exit(NULL);
+    }
+
+    cout<<"Received Response to RTT equal to "<<response<<endl;
 };
