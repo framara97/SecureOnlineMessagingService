@@ -56,6 +56,9 @@ class SecureChatClient{
         //Receive server certificate
         void receiveCertificate();
 
+        //Receive user public key
+        EVP_PKEY* receiveUserPubKey(string username);
+
         //Verify server certificate
         void verifyCertificate();
 
@@ -75,7 +78,7 @@ class SecureChatClient{
         void sendResponse(string sender_username, unsigned int response);
 
         //Wait for response to RTT
-        void waitForResponse();
+        unsigned int waitForResponse();
 
     public:
         //Constructor that gets the username, the server address and the server port

@@ -40,6 +40,8 @@ EVP_PKEY* SecureChatServer::getPrvKey() {
 EVP_PKEY* SecureChatServer::getUserKey(string username) {
     string path = "./server/" + username + "_pubkey.pem";
     EVP_PKEY* username_pubkey = Utility::readPubKey(path.c_str(), NULL);
+    cout << "Lunghezza chiave pubblica:" << endl;
+    cout<<EVP_PKEY_size(username_pubkey)<<endl;
     return username_pubkey;
 }
 
@@ -114,11 +116,20 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         //Server's thread receive the RTT message
         string receiver_username = receiveRTT(data_socket, username);
 
+        //Server forwards the RTT to the final receiver
         forwardRTT(receiver_username, username);
 
+        //Server waits for the response (accept or refuse) from the final receiver
         unsigned int response = receiveResponse(receiver_username);
 
+        //Server forwards the response to the sender
         forwardResponse(data_socket, response);
+
+        if(response == 1) {
+            //Server sends public keys to the users
+            sendUserPubKey(receiver_username, username);
+            sendUserPubKey(username, receiver_username);
+        }
     } 
 
     pthread_exit(NULL);
@@ -133,6 +144,26 @@ void SecureChatServer::sendCertificate(int process_socket){
 	
 	if (send(process_socket, certificate_buf, certificate_size, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the certificate."<<endl;
+		pthread_exit(NULL);
+	}
+
+    BIO_free(mbio);
+	return;
+}
+
+void SecureChatServer::sendUserPubKey(string sender_username, string receiver_username){
+
+    int data_socket = (*users).find(receiver_username)->second.socket;
+
+    EVP_PKEY* sender_pubkey = getUserKey(sender_username);
+
+    BIO* mbio = BIO_new(BIO_s_mem());
+    PEM_write_bio_PUBKEY(mbio, sender_pubkey);
+    char* pubkey_buf = NULL;
+    long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
+	
+	if (send(data_socket, pubkey_buf, pubkey_size, 0) < 0){
+		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the public key to "<<receiver_username<<endl;
 		pthread_exit(NULL);
 	}
 
@@ -241,7 +272,7 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     unsigned int len = 2;
     // |2|2|5|alice|3|bob| -> 14
     for (unsigned int i = 0; i < available.size(); i++){
-        //if (strcmp(available[i].username, username)!=0){ //TODO: Ricordiamoci di riattivare questo controllo
+        if (available[i].username.compare(username) != 0){ //TODO: Ricordiamoci di riattivare questo controllo
             if (len >= AVAILABLE_USER_MAX_SIZE){
                 cerr<<"Access our-of-bound"<<endl;
                 pthread_exit(NULL);
@@ -266,7 +297,7 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
             }
             memcpy(buf+len, available[i].username.c_str(), available[i].username.length()); //TODO: controllare se c'e' il fine stringa
             len += available[i].username.length();
-        //}
+        }
     }
 
     unsigned char* signature;
@@ -494,3 +525,4 @@ void SecureChatServer::forwardResponse(int data_socket, unsigned int response){
 		pthread_exit(NULL);
     }
 }
+

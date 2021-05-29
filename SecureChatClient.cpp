@@ -60,6 +60,9 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     //Send a message to authenticate to the server
     authenticateUser(choice);
 
+    unsigned int response;
+    EVP_PKEY* peer_key;
+
     if(choice == 0){ //client wants to send a message
         //Print the user list and select a user to communicate with 
         string selected_user = receiveAvailableUsers();
@@ -68,12 +71,17 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
         sendRTT(selected_user);
 
         //Wait fot the answer to the previous RTT
-        waitForResponse();
+        response = waitForResponse();
+
+        if(response==1){
+
+            //Wait for the selected_user public key
+            peer_key = receiveUserPubKey(selected_user);
+        }
     } else if(choice == 1){ //client wants to receive a message
         string sender_username = waitForRTT();
 
         cout<<"Authentication is ok"<<endl;
-        unsigned int response;
         //TODO: accept or refuse RTT
         cout<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"0: Refuse"<<endl<<"1: Accept"<<endl;
         cout<<"Select a choice: ";
@@ -87,6 +95,12 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
         }
 
         sendResponse(sender_username, response);
+
+        if(response==1){
+
+            //Wait for the selected_user public key
+            peer_key = receiveUserPubKey(sender_username);
+        }
     }
 };
 
@@ -144,6 +158,27 @@ void SecureChatClient::receiveCertificate(){
     BIO_write(mbio, certificate_buf, CERTIFICATE_MAX_SIZE);
     this->server_certificate = PEM_read_bio_X509(mbio, NULL, NULL, NULL);
     BIO_free(mbio);
+}
+
+EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
+    unsigned char* pubkey_buf = (unsigned char*)malloc(PUBKEY_SIZE);
+    if (!pubkey_buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
+
+    cout<<"Waiting for public key"<<endl;
+    if (recv(this->server_socket, (void*)pubkey_buf, PUBKEY_SIZE, 0) < 0){
+        cerr<<"Error in receiving the public key"<<endl;
+        exit(1);
+    }
+    cout<<"Public key received from "<<username<<endl;
+
+    BIO* mbio = BIO_new(BIO_s_mem());
+    BIO_write(mbio, pubkey_buf, CERTIFICATE_MAX_SIZE);
+    EVP_PKEY* peer_pubkey = PEM_read_bio_PUBKEY(mbio, NULL, NULL, NULL);
+    BIO_free(mbio);
+    return peer_pubkey;
 }
 
 void SecureChatClient::verifyCertificate(){
@@ -469,7 +504,7 @@ void SecureChatClient::sendResponse(string sender_username, unsigned int respons
     cout<<"Sending Response to RTT equal to "<<response<<endl;
 };
 
-void SecureChatClient::waitForResponse(){
+unsigned int SecureChatClient::waitForResponse(){
     // 4 | response | digest
     char* buf = (char*)malloc(RESPONSE_MAX_SIZE);
     if (!buf){
@@ -523,4 +558,6 @@ void SecureChatClient::waitForResponse(){
     }
 
     cout<<"Received Response to RTT equal to "<<response<<endl;
+
+    return response;
 };

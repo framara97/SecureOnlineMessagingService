@@ -73,6 +73,9 @@ class SecureChatServer{
         //Forward response to RTT
         void forwardResponse(int data_socket, unsigned int response);
 
+        //Send user public key to the users that want to communicate
+        void sendUserPubKey(string receiver_username, string sender_username);
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);
