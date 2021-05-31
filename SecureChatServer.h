@@ -77,7 +77,7 @@ class SecureChatServer{
         void sendUserPubKey(string receiver_username, string sender_username);
 
         //Receive a logout message
-        void checkLogout(char* msg, unsigned int buffer_len, unsigned int auth_required, string username);
+        void checkLogout(int data_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

@@ -46,23 +46,26 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     //Verify server certificate
     verifyCertificate();
 
-    cout<<"Do you want to"<<endl<<"0: Send a message"<<endl<<"1: Receive a message"<<endl<<"2: Logout"<<endl;
-    cout<<"Select a choice: ";
-    cin>>choice;
+    char input;
 
+    cout<<"Do you want to"<<endl<<"0: Send a message"<<endl<<"1: Receive a message"<<endl<<"q: Logout"<<endl;
+    cout<<"Select a choice: ";
+    cin>>input;
+    if(!cin){exit(1);}
     while(1){
-        if(!cin){exit(1);} //controllare se !cin puo' essere messo in or con la condizione seguente
-        if(choice != 0 && choice != 1 && choice != 2){
+        if(input != '0' && input != '1' && input != 'q'){
             cout<<"Choice not valid! Choose 0, 1 or 2!"<<endl;
-            cin>>choice;
+            cin>>input;
+            if(!cin){exit(1);}
         } else break;
     }
 
-    if(choice == 2){
+    if(input == 'q'){
         //Logout
         logout(0); //non-authenticated logout
         exit(0);
     }
+    choice = input-'0';
 
     //Send a message to authenticate to the server
     authenticateUser(choice);
@@ -89,15 +92,15 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
         string sender_username = waitForRTT();
 
         cout<<"Authentication is ok"<<endl;
-        //TODO: accept or refuse RTT
         cout<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"0: Refuse"<<endl<<"1: Accept"<<endl;
         cout<<"Select a choice: ";
         cin>>response;
+        if(!cin){exit(1);}
         while(1){
-            if(!cin){exit(1);} //controllare se !cin puo' essere messo in or con la condizione seguente
             if(response != 0 && response != 1){
                 cout<<"Choice not valid! Choose 0 or 1!"<<endl;
                 cin>>response;
+                if(!cin){exit(1);}
             } else break;
         }
 
@@ -311,13 +314,22 @@ string SecureChatClient::receiveAvailableUsers(){
         exit(1);
     }
 
-    cout<<"Online Users"<<endl;
     unsigned int user_number = buf[1];
     unsigned int current_len = 2;
     unsigned int username_len;
     char current_username[USERNAME_MAX_SIZE];
     // 2 | 2 | 6 | simeon | 5 | mbala
     map<unsigned int, string> users_online;
+    if (user_number < 0){
+        cerr<<"The number of available users is negative."<<endl;
+        exit(1);
+    }
+    if (user_number == 0){
+        cout<<"There are no available users."<<endl;
+    }
+    else{
+        cout<<"Online Users"<<endl;
+    }
     for (unsigned int i = 0; i < user_number; i++){
         if (current_len >= AVAILABLE_USER_MAX_SIZE){
             cerr<<"Access out-of-bound"<<endl;
@@ -347,16 +359,22 @@ string SecureChatClient::receiveAvailableUsers(){
         current_len += username_len;
         users_online.insert(pair<unsigned int, string>(i, (string)current_username));
     }
+    cout<<"q: Logout"<<endl;
 
     string selected;
-    cout<<"Select the number corrisponding to the user you want to communicate with: ";
+    cout<<"Select an option or the number corresponding to one of the users: ";
     cin>>selected;
     if(!cin) {exit(1);}
 
-    while(!Utility::isNumeric(selected) || atoi(selected.c_str()) >= user_number){
-        cout<<"Selected user number not valid! Select another number: ";
+    while((!Utility::isNumeric(selected) || atoi(selected.c_str()) >= user_number) && selected.compare("q") != 0){
+        cout<<"Selection is not valid! Select another option or number: ";
         cin>>selected;
         if(!cin) {exit(1);}
+    }
+
+    if (selected.compare("q") == 0){
+        logout(1);
+        exit(0);
     }
 
     return users_online.at(atoi(selected.c_str()));
@@ -410,7 +428,7 @@ void SecureChatClient::sendRTT(string selected_user){
 
 string SecureChatClient::waitForRTT(){
     // 3 | receiver_username_len | receiver_username | signature
-    char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
+    char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE); //TODO: cambiare costante
     if (!buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
@@ -590,7 +608,7 @@ void SecureChatClient::logout(unsigned int authenticated){
             exit(1);
         }
         msg_len = len + signature_len;
-        if (msg_len >= LOGOUT_MAX_SIZE){
+        if (msg_len > LOGOUT_MAX_SIZE){
             cerr<<"Access out-of-bound"<<endl;
             exit(1);
         }

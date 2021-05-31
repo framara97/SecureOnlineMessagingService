@@ -128,7 +128,6 @@ void Utility::signMessage(EVP_PKEY* privkey, char* msg, unsigned int len, unsign
     EVP_SignInit(ctx, EVP_sha256());
     EVP_SignUpdate(ctx, (unsigned char*)msg, len);
     EVP_SignFinal(ctx, *signature, &*signature_len, privkey);
-    cout<<*signature_len<<endl;
     EVP_MD_CTX_free(ctx);
 }
 

@@ -111,7 +111,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     if(status == 0){//user wants to send message
         //Send the list of available to receive users
         sendAvailableUsers(data_socket, username);
-
+        
         //Server's thread receive the RTT message
         string receiver_username = receiveRTT(data_socket, username);
 
@@ -185,7 +185,7 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
     }
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
-    checkLogout(authentication_buf, authentication_len, 0, NULL);
+    checkLogout(process_socket, authentication_buf, authentication_len, 0, "");
     status = authentication_buf[0];
     cout<<status<<endl;
     if (status != 0 && status != 1){
@@ -341,7 +341,7 @@ string SecureChatServer::receiveRTT(int data_socket, string username){
     cout<<"Thread "<<gettid()<<": RTT message received"<<endl;
     pthread_mutex_unlock(&(*users).at(username).user_mutex);
 
-    checkLogout(buf, len, 1, username);
+    checkLogout(data_socket, buf, len, 1, username);
 
     unsigned int message_type = buf[0];
     if (message_type != 3){
@@ -458,7 +458,7 @@ unsigned int SecureChatServer::receiveResponse(string receiver_username){
     cout<<"Thread "<<gettid()<<": Response to RTT message received"<<endl;
     pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
 
-    checkLogout(buf, len, 1, receiver_username);
+    checkLogout(data_socket, buf, len, 1, receiver_username);
     unsigned int message_type = buf[0];
     if (message_type != 4){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'Response to RTT type'."<<endl;
@@ -538,17 +538,18 @@ void SecureChatServer::forwardResponse(int data_socket, unsigned int response){
     }
 }
 
-void SecureChatServer::checkLogout(char* msg, unsigned int buffer_len, unsigned int auth_required, string username){
+void SecureChatServer::checkLogout(int data_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username){
+    printf("%02hhx\n", msg[1]);
     if(msg[0] != 8)
         return;
 
     if(msg[1] == 0){
         if(auth_required == 1) //it is not possible to accept logout
             return;
-        pthread_mutex_lock(&(*users).at(username).user_mutex);
+        close(data_socket);
         pthread_exit(NULL);
-        pthread_mutex_unlock(&(*users).at(username).user_mutex);
-    } else{
+    }
+    else{
         unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
         if (!signature){
             cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
@@ -575,7 +576,8 @@ void SecureChatServer::checkLogout(char* msg, unsigned int buffer_len, unsigned 
         }
 
         pthread_mutex_lock(&(*users).at(username).user_mutex);
-        pthread_exit(NULL);
+        close(data_socket);
         pthread_mutex_unlock(&(*users).at(username).user_mutex);
+        pthread_exit(NULL);
     }
 }
