@@ -46,15 +46,22 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     //Verify server certificate
     verifyCertificate();
 
-    cout<<"Do you want to"<<endl<<"0: Send a message?"<<endl<<"1: Receive a message?"<<endl;
+    cout<<"Do you want to"<<endl<<"0: Send a message"<<endl<<"1: Receive a message"<<endl<<"2: Logout"<<endl;
     cout<<"Select a choice: ";
     cin>>choice;
+
     while(1){
         if(!cin){exit(1);} //controllare se !cin puo' essere messo in or con la condizione seguente
-        if(choice != 0 && choice != 1){
-            cout<<"Choice not valid! Choose 0 or 1!"<<endl;
+        if(choice != 0 && choice != 1 && choice != 2){
+            cout<<"Choice not valid! Choose 0, 1 or 2!"<<endl;
             cin>>choice;
         } else break;
+    }
+
+    if(choice == 2){
+        //Logout
+        logout(0); //non-authenticated logout
+        exit(0);
     }
 
     //Send a message to authenticate to the server
@@ -356,7 +363,7 @@ string SecureChatClient::receiveAvailableUsers(){
 }
 
 void SecureChatClient::sendRTT(string selected_user){
-    // 3 | receiver_username_len | receiver_username | digest
+    // 3 | receiver_username_len | receiver_username | signature
     char msg[RTT_MAX_SIZE];
     msg[0] = 3; //Type = 3, request to talk message
     char receiver_username_len = selected_user.length(); //receiver_username length on one byte
@@ -393,7 +400,7 @@ void SecureChatClient::sendRTT(string selected_user){
         cerr<<"Access out-of-bound"<<endl;
         exit(1);
     }
-    memcpy(msg + len, signature, signature_len);
+    memcpy(msg+len, signature, signature_len);
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		cerr<<"Error in the sendto of the authentication message."<<endl;
@@ -402,7 +409,7 @@ void SecureChatClient::sendRTT(string selected_user){
 };
 
 string SecureChatClient::waitForRTT(){
-    // 3 | receiver_username_len | receiver_username | digest
+    // 3 | receiver_username_len | receiver_username | signature
     char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
     if (!buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
@@ -561,3 +568,37 @@ unsigned int SecureChatClient::waitForResponse(){
 
     return response;
 };
+
+void SecureChatClient::logout(unsigned int authenticated){
+    // 8 | 0/1 | [signature] []: only whether user is authenticated
+    char msg[LOGOUT_MAX_SIZE];
+    msg[0] = 8; //Type = 8, logout message
+    msg[1] = authenticated;
+    unsigned int len = 2;
+    unsigned int msg_len = 2;
+    if(authenticated == 1){
+        unsigned char* signature;
+        unsigned int signature_len;
+        Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
+
+        if (len + (unsigned long)msg < len){
+            cerr<<"Wrap around"<<endl;
+            exit(1);
+        }
+        if (len + signature_len < len){
+            cerr<<"Wrap around"<<endl;
+            exit(1);
+        }
+        msg_len = len + signature_len;
+        if (msg_len >= LOGOUT_MAX_SIZE){
+            cerr<<"Access out-of-bound"<<endl;
+            exit(1);
+        }
+        memcpy(msg+len, signature, signature_len);
+    }
+    
+    if (send(this->server_socket, msg, msg_len, 0) < 0){
+		cerr<<"Error in the sendto of the logout message."<<endl;
+		exit(1);
+	}
+}

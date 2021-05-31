@@ -15,3 +15,4 @@ const unsigned int RTT_MAX_SIZE = 3 + USERNAME_MAX_SIZE + SIGNATURE_SIZE;
 const unsigned int RESPONSE_MAX_SIZE = SIGNATURE_SIZE + 2;
 const unsigned int PUBKEY_SIZE = 256;
 const unsigned int SEND_PUBKEY_USER_SIZE = SIGNATURE_SIZE + PUBKEY_SIZE + 1;
+const unsigned int LOGOUT_MAX_SIZE = 2 + DIGEST_SIZE;

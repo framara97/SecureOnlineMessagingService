@@ -29,7 +29,6 @@ SecureChatServer::SecureChatServer(const char *addr, unsigned short int port, co
 
     //Let the server listen to client requests
     listenRequests();
-
 }
 
 EVP_PKEY* SecureChatServer::getPrvKey() {
@@ -177,6 +176,8 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
+
+    //IMPORTANTE: socket non può essere utilizzato da altri thread perchè l'istanza della classe User non è stata creata
     unsigned int authentication_len = recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
     if (authentication_len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
@@ -184,6 +185,7 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
     }
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
+    checkLogout(authentication_buf, authentication_len, 0, NULL);
     status = authentication_buf[0];
     cout<<status<<endl;
     if (status != 0 && status != 1){
@@ -328,12 +330,18 @@ string SecureChatServer::receiveRTT(int data_socket, string username){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         pthread_exit(NULL);
     }
+
+
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
     unsigned int len = recv(data_socket, (void*)buf, RTT_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": RTT message received"<<endl;
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
+
+    checkLogout(buf, len, 1, username);
 
     unsigned int message_type = buf[0];
     if (message_type != 3){
@@ -440,13 +448,17 @@ unsigned int SecureChatServer::receiveResponse(string receiver_username){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         pthread_exit(NULL);
     }
+
+    pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
     unsigned int len = recv(data_socket, (void*)buf, RESPONSE_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the Response to RTT message"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Response to RTT message received"<<endl;
+    pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
 
+    checkLogout(buf, len, 1, receiver_username);
     unsigned int message_type = buf[0];
     if (message_type != 4){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'Response to RTT type'."<<endl;
@@ -526,3 +538,44 @@ void SecureChatServer::forwardResponse(int data_socket, unsigned int response){
     }
 }
 
+void SecureChatServer::checkLogout(char* msg, unsigned int buffer_len, unsigned int auth_required, string username){
+    if(msg[0] != 8)
+        return;
+
+    if(msg[1] == 0){
+        if(auth_required == 1) //it is not possible to accept logout
+            return;
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
+        pthread_exit(NULL);
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    } else{
+        unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+        if (!signature){
+            cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+            pthread_exit(NULL);
+        }
+        if (2 + (unsigned long)msg < 2){
+            cerr<<"Wrap around"<<endl;
+            pthread_exit(NULL);
+        }
+        memcpy(signature, msg+2, SIGNATURE_SIZE);
+
+        char* clear_message = (char*)malloc(2);
+        if (!clear_message){
+            cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+            pthread_exit(NULL);
+        }
+        memcpy(clear_message, msg, 2);
+
+        EVP_PKEY* pubkey = getUserKey(username);
+
+        if(Utility::verifyMessage(pubkey, clear_message, 2, signature, SIGNATURE_SIZE) != 1) { 
+            cerr<<"Thread "<<gettid()<<": logout not accepted"<<endl;
+            return;
+        }
+
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
+        pthread_exit(NULL);
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    }
+}

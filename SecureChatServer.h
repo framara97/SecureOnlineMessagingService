@@ -76,6 +76,9 @@ class SecureChatServer{
         //Send user public key to the users that want to communicate
         void sendUserPubKey(string receiver_username, string sender_username);
 
+        //Receive a logout message
+        void checkLogout(char* msg, unsigned int buffer_len, unsigned int auth_required, string username);
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);
