@@ -30,6 +30,12 @@ struct User {
     //Mutex used to avoid multiple simultaneous accesses
     pthread_mutex_t user_mutex;
 
+    //This variable is used to communicate between the thread of the sender and the thread of the receiver during the protocol
+    condition_variable cv;
+    bool ready;
+    mutex mtx;
+    map<string, int> responses;
+
     User(const User &user);
 
     User();

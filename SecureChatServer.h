@@ -68,13 +68,13 @@ class SecureChatServer{
         void forwardRTT(string receiver_username, string sender_username);
 
         //Receive response to RTT
-        unsigned int receiveResponse(string receiver_username);
+        string receiveResponse(int data_socket, string receiver_username, unsigned int &response);
 
         //Forward response to RTT
-        void forwardResponse(int data_socket, unsigned int response);
+        void forwardResponse(string sender_username, unsigned int response);
 
         //Send user public key to the users that want to communicate
-        void sendUserPubKey(string receiver_username, string sender_username);
+        void sendUserPubKey(string username, int data_socket);
 
         //Receive a logout message
         void checkLogout(int data_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username);

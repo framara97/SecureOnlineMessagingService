@@ -64,6 +64,7 @@ User::User(const User &user){
     this->socket = user.socket;
     this->status = user.status;
     this->username = user.username;
+
     if (pthread_mutex_init(&this->user_mutex, NULL) != 0){
         cerr<<"Error in initializing the mutex"<<endl;
     };
