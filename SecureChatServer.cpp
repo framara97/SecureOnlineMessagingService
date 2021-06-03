@@ -122,12 +122,28 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         while(!(*users).at(receiver_username).ready)
             (*users).at(receiver_username).cv.wait(lck);
 
-        pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
+        cout<<"Th. Antetokoumpo"<<endl;
+
+        //pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
+        cout<<"Bonaccorsi: "<<(*users).at(receiver_username).responses.at(username)<<endl;
         if((*users).at(receiver_username).responses.at(username) == 1) {
-            //Server sends public keys to the users
+            //Server sends public keys to the user
+            cout<<"Pola"<<endl;
             sendUserPubKey(receiver_username, data_socket);
         }
-        pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
+        //pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
+
+        char msg[GENERAL_MSG_SIZE];
+        unsigned int len;
+
+        receive(data_socket, username, len, msg);
+        cout<<"Vaglini: "<<endl;
+        for (int i = 0; i < 5; i++){
+            printf("%02hhx", msg[i]);
+        }
+        cout<<endl;
+        msg[len] = '\0';
+        forward(receiver_username, msg, len);
     }
     if (status == 1){ //user wants to receive a message
         //Server waits for the response (accept or refuse) from the final receiver
@@ -143,9 +159,16 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         (*users).at(username).ready = 1;
         pthread_mutex_unlock(&(*users).at(username).user_mutex);
         (*users).at(username).cv.notify_all();
+
+        char msg[GENERAL_MSG_SIZE];
+        unsigned int len;
         
         if (response == 1){
+
             sendUserPubKey(sender_username, data_socket);
+            //strncpy(msg, receive(data_socket, username, len), len);
+            //msg[len] = '\0';
+            //forward(sender_username, msg, len);
         }
     }
 
@@ -170,7 +193,6 @@ void SecureChatServer::sendCertificate(int process_socket){
 
 void SecureChatServer::sendUserPubKey(string username, int data_socket){
 
-    cout<<"Porca troia"<<endl;
     char buf[PUBKEY_MSG_SIZE];
     char* pubkey_buf = NULL;
     buf[0] = 5;
@@ -180,28 +202,21 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
     BIO* mbio = BIO_new(BIO_s_mem());
     PEM_write_bio_PUBKEY(mbio, pubkey);
 
-    cout<<"Pre BIO get mem data"<<endl;
-    
     long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
     if (1 + PUBKEY_SIZE < 1){
         cerr<<"Wrap around"<<endl;
         pthread_exit(NULL);
     }
-    cout<<"Post BIO"<<endl;
     unsigned int len = 1 + pubkey_size;
-    cout<<pubkey_size<<endl;
-    cout<<PUBKEY_MSG_SIZE<<endl;
     if (1 + pubkey_size > PUBKEY_MSG_SIZE){
         cerr<<"Access out-of-bound"<<endl;
         pthread_exit(NULL);
     }
     memcpy(buf+1, pubkey_buf, pubkey_size);
-    cout<<"Post memcpy"<<endl;
 
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
-    cout<<len + signature_len<<endl;
 
     if (len + signature_len < len){
         cerr<<"Wrap around"<<endl;
@@ -223,7 +238,6 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
 		pthread_exit(NULL);
 	}
     
-
     BIO_free(mbio);
 	return;
 }
@@ -254,7 +268,7 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
         cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
     }
     string username;
-    if (authentication_buf + 2 < authentication_buf){
+    if (2 + (unsigned long)authentication_buf < 2){
         cerr<<"Wrap around"<<endl;
         pthread_exit(NULL);
     }
@@ -669,5 +683,41 @@ void SecureChatServer::checkLogout(int data_socket, char* msg, unsigned int buff
         close(data_socket);
         pthread_mutex_unlock(&(*users).at(username).user_mutex);
         pthread_exit(NULL);
+    }
+}
+
+char* SecureChatServer::receive(int data_socket, string username, unsigned int &len, char* buf){
+    if (!buf){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        pthread_exit(NULL);
+    }
+
+    //pthread_mutex_lock(&(*users).at(username).user_mutex);
+    len = recv(data_socket, (void*)buf, GENERAL_MSG_SIZE, 0);
+    if (len < 0){
+        cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl;
+        pthread_exit(NULL);
+    }
+    //pthread_mutex_unlock(&(*users).at(username).user_mutex);
+
+    cout<<"Marcelloni: "<<endl;
+    for (int i = 0; i < 5; i++){
+        printf("%02hhx", buf[i]);
+    }
+    cout<<endl;
+
+    return buf;
+}
+
+void SecureChatServer::forward(string username, char* msg, unsigned int len){
+    cout<<"Ducange: "<<endl;
+    for (int i = 0; i < 5; i++){
+        printf("%02hhx", msg[i]);
+    }
+    cout<<endl;
+    int data_socket = (*users).at(username).socket;
+    if (send(data_socket, msg, len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<": Error in the forward of the Response to RTT"<<endl;
+		pthread_exit(NULL);
     }
 }

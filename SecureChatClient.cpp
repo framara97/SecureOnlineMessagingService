@@ -88,6 +88,9 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
 
             //Wait for the selected_user public key
             peer_key = receiveUserPubKey(selected_user);
+
+            //Handle key establishment
+            senderKeyEstablishment(selected_user);
         }
     } else if(choice == 1){ //client wants to receive a message
         string sender_username = waitForRTT();
@@ -111,6 +114,9 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
 
             //Wait for the selected_user public key
             peer_key = receiveUserPubKey(sender_username);
+
+            //Handle key establishment
+            receiverKeyEstablishment(sender_username);
         }
     }
 };
@@ -689,4 +695,118 @@ void SecureChatClient::logout(unsigned int authenticated){
 		exit(1);
 	}
     close(this->server_socket);
+}
+
+void SecureChatClient::senderKeyEstablishment(string receiver_username){
+    cout<<"Sender key establishment"<<endl;
+    RAND_poll();
+    unsigned char r[R_SIZE];
+    RAND_bytes(r, R_SIZE);
+
+    char m1[R_MSG_SIZE];
+    m1[0] = 6;
+    if (1 + (unsigned long)m1 < 1){
+        cerr<<"Wrap around"<<endl;
+        exit(1);
+    }
+    memcpy(m1+1, r, R_SIZE);
+    unsigned int len = R_SIZE + 1;
+
+    unsigned char* signature;
+    unsigned int signature_len;
+    Utility::signMessage(client_prvkey, m1, len, &signature, &signature_len);
+
+    if (len + (unsigned long)m1 < len){
+        cerr<<"Wrap around"<<endl;
+        exit(1);
+    }
+    if (len + signature_len < len){
+        cerr<<"Wrap around"<<endl;
+        exit(1);
+    }
+    unsigned int msg_len = len + signature_len;
+    if (msg_len > RESPONSE_MAX_SIZE){
+        cerr<<"Access out-of-bound"<<endl;
+        exit(1);
+    }
+    memcpy(m1 + len, signature, signature_len);
+
+    for (int i = 0; i < 5; i++){
+        printf("%02hhx", m1[i]);
+    }
+    cout<<endl<<len<<endl;
+
+    if (send(this->server_socket, m1, len, 0) < 0){
+		cerr<<"Error in the sendto of the key establishment message."<<endl;
+		exit(1);
+	}
+    cout<<"Andato! Godopoli"<<endl;
+}
+
+void SecureChatClient::receiverKeyEstablishment(string sender_username){
+    cout<<"Receiver key establishment"<<endl;
+    char* m1 = (char*)malloc(R_MSG_SIZE);
+    if (!m1){
+        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
+
+    unsigned int len = recv(this->server_socket, (void*)m1, R_MSG_SIZE, 0);
+    cout<<len<<endl;
+    if (len < 0){
+        cerr<<"Error in receiving M1 from another user"<<endl;
+        exit(1);
+    }
+
+    for (int i = 0; i < 5; i++){
+        printf("%02hhx", m1[i]);
+    }
+    cout<<endl;
+
+    if (m1[0] != 6){
+        cerr<<"Received a message type different from 'key esablishment' type"<<endl;
+        exit(1);
+    }
+
+    unsigned char r[R_SIZE];
+    memcpy(r, m1, R_SIZE);
+
+    string generate_keys = "openssl genrsa -out client/" + this->username + "/tprivk.pem 3072";
+    system(generate_keys.c_str());
+    EVP_PKEY* privkey;
+    string path = "client/" + this->username + "/tprivk.pem";
+    cout<<path<<endl;
+    FILE* file = fopen(path.c_str(), "r");
+    if(!file){
+        cerr<<"Error while reading the file"<<endl;
+        exit(1);
+    }
+    privkey = PEM_read_PrivateKey(file, NULL, NULL, NULL);
+    if(!privkey){
+        cerr<<"Error while reading the private key"<<endl;
+        exit(1);
+    }
+    fclose(file);
+
+    string extract_pubkey = "openssl rsa -pubout -in client/" + this->username + "/tprivk.pem -out client/" + this->username + "/tpubk.pem";
+    path = "client/" + this->username + "/tpubk.pem";
+    cout<<extract_pubkey<<endl;
+    system(extract_pubkey.c_str()); //TODO: mettere execve
+    EVP_PKEY* pubkey;
+    file = fopen(path.c_str(), "r");
+    if(!file){
+        cerr<<"Error while reading the file"<<endl;
+        exit(1);
+    }
+    pubkey = PEM_read_PUBKEY(file, NULL, NULL, NULL);
+    if(!pubkey){
+        cerr<<"Error while reading the public key"<<endl;
+        exit(1);
+    }
+    fclose(file);
+    string delete_file = "rm client/" + this->username + "/tprivk.pem";
+    system(delete_file.c_str());
+    delete_file = "rm client/" + this->username + "/tpubk.pem";
+    system(delete_file.c_str());
+    cout<<"Proprio lui ccezionle"<<endl;
 }

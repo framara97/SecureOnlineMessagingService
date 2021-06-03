@@ -17,3 +17,6 @@ const unsigned int PUBKEY_SIZE = 256;
 const unsigned int SEND_PUBKEY_USER_SIZE = SIGNATURE_SIZE + PUBKEY_SIZE + 1;
 const unsigned int LOGOUT_MAX_SIZE = 2 + SIGNATURE_SIZE;
 const unsigned int PUBKEY_MSG_SIZE = 2048;
+const unsigned int R_SIZE = 16;
+const unsigned int R_MSG_SIZE = 1 + R_SIZE + SIGNATURE_SIZE;
+const unsigned int GENERAL_MSG_SIZE = 4096;

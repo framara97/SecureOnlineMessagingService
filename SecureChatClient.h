@@ -83,6 +83,9 @@ class SecureChatClient{
         //User logout
         void logout(unsigned int authenticated);
 
+        void senderKeyEstablishment(string receiver_username);
+        void receiverKeyEstablishment(string sender_username);
+
     public:
         //Constructor that gets the username, the server address and the server port
         SecureChatClient(string username, const char *server_addr, unsigned short int server_port);
