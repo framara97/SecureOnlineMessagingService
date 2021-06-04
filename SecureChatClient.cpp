@@ -4,6 +4,8 @@
 #include <thread>
 #include <map>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 string SecureChatClient::username;
 unsigned int SecureChatClient::choice;
@@ -740,7 +742,6 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username){
 		cerr<<"Error in the sendto of the key establishment message."<<endl;
 		exit(1);
 	}
-    cout<<"Andato! Godopoli"<<endl;
 }
 
 void SecureChatClient::receiverKeyEstablishment(string sender_username){
@@ -771,12 +772,28 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     unsigned char r[R_SIZE];
     memcpy(r, m1, R_SIZE);
 
-    string generate_keys = "openssl genrsa -out client/" + this->username + "/tprivk.pem 3072";
-    system(generate_keys.c_str());
+    pid_t pid;
+    char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
     EVP_PKEY* privkey;
-    string path = "client/" + this->username + "/tprivk.pem";
-    cout<<path<<endl;
-    FILE* file = fopen(path.c_str(), "r");
+    string tprivk_path = "client/" + this->username + "/tprivk.pem";
+    argv1[2] = (char*)malloc(tprivk_path.length()+1);
+    if (!argv1[2]){
+        cerr<<"Malloc didn't work"<<endl;
+        exit(1);
+    }
+    strncpy(argv1[2], tprivk_path.c_str(), tprivk_path.length());
+    argv1[2][tprivk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){
+        execv("/bin/openssl", argv1);
+        exit(0);
+    }
+    if (pid < 0){
+        cerr<<"Error while creating a new process"<<endl;
+        exit(1);
+    }
+    waitpid(pid, NULL, 0);
+    FILE* file = fopen(tprivk_path.c_str(), "r");
     if(!file){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
@@ -788,12 +805,34 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     }
     fclose(file);
 
-    string extract_pubkey = "openssl rsa -pubout -in client/" + this->username + "/tprivk.pem -out client/" + this->username + "/tpubk.pem";
-    path = "client/" + this->username + "/tpubk.pem";
-    cout<<extract_pubkey<<endl;
-    system(extract_pubkey.c_str()); //TODO: mettere execve
+    string tpubk_path = "client/" + this->username + "/tpubk.pem";
+    char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
+    argv2[3] = (char*)malloc(tprivk_path.length()+1);
+    if (!argv2[3]){
+        cerr<<"Malloc didn't work"<<endl;
+        exit(1);
+    }
+    strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
+    argv2[3][tprivk_path.length()] = '\0';
+    argv2[5] = (char*)malloc(tpubk_path.length()+1);
+    if (!argv2[5]){
+        cerr<<"Malloc didn't work"<<endl;
+        exit(1);
+    }
+    strncpy(argv2[5], tpubk_path.c_str(), tpubk_path.length());
+    argv2[5][tpubk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){
+        execv("/bin/openssl", argv2);
+        exit(0);
+    }
+    if (pid < 0){
+        cerr<<"Error while creating a new process"<<endl;
+        exit(1);
+    }
+    waitpid(pid, NULL, 0);
     EVP_PKEY* pubkey;
-    file = fopen(path.c_str(), "r");
+    file = fopen(tpubk_path.c_str(), "r");
     if(!file){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
@@ -804,9 +843,41 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
     fclose(file);
-    string delete_file = "rm client/" + this->username + "/tprivk.pem";
-    system(delete_file.c_str());
-    delete_file = "rm client/" + this->username + "/tpubk.pem";
-    system(delete_file.c_str());
-    cout<<"Proprio lui ccezionle"<<endl;
+    char* argv3[3] = {strdup("/bin/rm"), strdup(""), NULL};
+    argv3[1] = (char*)malloc(tpubk_path.length());
+    if (!argv3[1]){
+        cerr<<"Malloc didn't work"<<endl;
+        exit(1);
+    }
+    strncpy(argv3[1], tpubk_path.c_str(), tpubk_path.length());
+    argv3[1][tpubk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){
+        execv("/bin/rm", argv3);
+        exit(0);
+    }
+    if (pid < 0){
+        cerr<<"Error while creating a new process"<<endl;
+        exit(1);
+    }
+    waitpid(pid, NULL, 0);
+
+    char* argv4[3] = {strdup("/bin/rm"), strdup(""), NULL};
+    argv4[1] = (char*)malloc(tprivk_path.length());
+    if (!argv4[1]){
+        cerr<<"Malloc didn't work"<<endl;
+        exit(1);
+    }
+    strncpy(argv4[1], tprivk_path.c_str(), tprivk_path.length());
+    argv4[1][tprivk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){
+        execv("/bin/rm", argv4);
+        exit(0);
+    }
+    if (pid < 0){
+        cerr<<"Error while creating a new process"<<endl;
+        exit(1);
+    }
+    waitpid(pid, NULL, 0);
 }
