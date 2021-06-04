@@ -7,8 +7,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-const char* HOME_DIR = "/home/";
-
 string SecureChatClient::username;
 unsigned int SecureChatClient::choice;
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
@@ -778,21 +776,16 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
     EVP_PKEY* privkey;
     string tprivk_path = "client/" + this->username + "/tprivk.pem";
-
-    char* tprivk_canon_path = realpath(tprivk_path.c_str(), NULL);
-    if(!tprivk_canon_path) return;
-    if(strncmp(tprivk_canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(tprivk_canon_path); return; }
-
-    argv1[2] = (char*)malloc(strlen(tprivk_canon_path)+1);
+    argv1[2] = (char*)malloc(tprivk_path.length()+1);
     if (!argv1[2]){
         cerr<<"Malloc didn't work"<<endl;
         exit(1);
     }
-    strncpy(argv1[2], tprivk_canon_path, strlen(tprivk_canon_path));
-    argv1[2][strlen(tprivk_canon_path)] = '\0';
+    strncpy(argv1[2], tprivk_path.c_str(), tprivk_path.length());
+    argv1[2][tprivk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){
-        execv("usr/local/bin/openssl", argv1);
+        execv("/bin/openssl", argv1);
         exit(0);
     }
     if (pid < 0){
@@ -800,7 +793,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
     waitpid(pid, NULL, 0);
-    FILE* file = fopen(tprivk_canon_path, "r");
+    FILE* file = fopen(tprivk_path.c_str(), "r");
     if(!file){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
@@ -813,29 +806,24 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     fclose(file);
 
     string tpubk_path = "client/" + this->username + "/tpubk.pem";
-
-    char* tpubk_canon_path = realpath(tpubk_path.c_str(), NULL);
-    if(!tpubk_canon_path) return;
-    if(strncmp(tpubk_canon_path, HOME_DIR, strlen(HOME_DIR)) != 0) { free(tpubk_canon_path); return; }
-
     char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
-    argv2[3] = (char*)malloc(strlen(tprivk_canon_path)+1);
+    argv2[3] = (char*)malloc(tprivk_path.length()+1);
     if (!argv2[3]){
         cerr<<"Malloc didn't work"<<endl;
         exit(1);
     }
-    strncpy(argv2[3], tprivk_canon_path, strlen(tprivk_canon_path));
-    argv2[3][strlen(tprivk_canon_path)] = '\0';
-    argv2[5] = (char*)malloc(strlen(tpubk_canon_path)+1);
+    strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
+    argv2[3][tprivk_path.length()] = '\0';
+    argv2[5] = (char*)malloc(tpubk_path.length()+1);
     if (!argv2[5]){
         cerr<<"Malloc didn't work"<<endl;
         exit(1);
     }
-    strncpy(argv2[5], tpubk_canon_path, strlen(tpubk_canon_path));
-    argv2[5][strlen(tpubk_canon_path)] = '\0';
+    strncpy(argv2[5], tpubk_path.c_str(), tpubk_path.length());
+    argv2[5][tpubk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){
-        execv("usr/local/bin/openssl", argv2);
+        execv("/bin/openssl", argv2);
         exit(0);
     }
     if (pid < 0){
@@ -844,7 +832,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     }
     waitpid(pid, NULL, 0);
     EVP_PKEY* pubkey;
-    file = fopen(tpubk_canon_path, "r");
+    file = fopen(tpubk_path.c_str(), "r");
     if(!file){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
@@ -856,13 +844,13 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     }
     fclose(file);
     char* argv3[3] = {strdup("/bin/rm"), strdup(""), NULL};
-    argv3[1] = (char*)malloc(strlen(tpubk_canon_path));
+    argv3[1] = (char*)malloc(tpubk_path.length());
     if (!argv3[1]){
         cerr<<"Malloc didn't work"<<endl;
         exit(1);
     }
-    strncpy(argv3[1], tpubk_canon_path, strlen(tpubk_canon_path));
-    argv3[1][strlen(tpubk_canon_path)] = '\0';
+    strncpy(argv3[1], tpubk_path.c_str(), tpubk_path.length());
+    argv3[1][tpubk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){
         execv("/bin/rm", argv3);
@@ -875,13 +863,13 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
     waitpid(pid, NULL, 0);
 
     char* argv4[3] = {strdup("/bin/rm"), strdup(""), NULL};
-    argv4[1] = (char*)malloc(strlen(tprivk_canon_path));
+    argv4[1] = (char*)malloc(tprivk_path.length());
     if (!argv4[1]){
         cerr<<"Malloc didn't work"<<endl;
         exit(1);
     }
-    strncpy(argv4[1], tprivk_canon_path, strlen(tprivk_canon_path));
-    argv4[1][strlen(tprivk_canon_path)] = '\0';
+    strncpy(argv4[1], tprivk_path.c_str(), tprivk_path.length());
+    argv4[1][tprivk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){
         execv("/bin/rm", argv4);
@@ -892,5 +880,4 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
     waitpid(pid, NULL, 0);
-    cout<<"GODOPOLI"<<endl;
 }
