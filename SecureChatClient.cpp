@@ -11,7 +11,6 @@ string SecureChatClient::username;
 unsigned int SecureChatClient::choice;
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
-X509* SecureChatClient::own_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
 SecureChatClient::SecureChatClient(string client_username, const char *server_addr, unsigned short int server_port) {
@@ -743,40 +742,36 @@ int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key, u
 
 void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY* peer_key){
     cout<<"Sender key establishment"<<endl;
+
+    //creating message R, signing and sending it to receiver_username
     RAND_poll();
     unsigned char r[R_SIZE];
     RAND_bytes(r, R_SIZE);
 
     char m1[R_MSG_SIZE];
     m1[0] = 6;
-    if (1 + (unsigned long)m1 < 1){
-        cerr<<"Wrap around"<<endl;
-        exit(1);
-    }
+    if (1 + (unsigned long)m1 < 1){ cerr<<"Wrap around"<<endl; exit(1); }
     memcpy(m1+1, r, R_SIZE);
     unsigned int len = R_SIZE + 1;
 
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(client_prvkey, m1, len, &signature, &signature_len);
-
-    if (len + (unsigned long)m1 < len){
-        cerr<<"Wrap around"<<endl;
-        exit(1);
-    }
-    if (len + signature_len < len){
-        cerr<<"Wrap around"<<endl;
-        exit(1);
-    }
+    if (len + (unsigned long)m1 < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; exit(1); }
     unsigned int msg_len = len + signature_len;
-    if (msg_len > RESPONSE_MAX_SIZE){
-        cerr<<"Access out-of-bound"<<endl;
-        exit(1);
-    }
+    cout<<"len nel sender: "<<len<<endl;
+    if (msg_len > RESPONSE_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
     memcpy(m1+len, signature, signature_len);
 
-    if (send(this->server_socket, m1, msg_len, 0) < 0) { cerr<<"Error in the sendto of the message R."<<endl; exit(1); }
-    cout<<"message R sent to"<<receiver_username<<endl;
+    if (send(this->server_socket, m1, msg_len, 0) < 0) { cerr<<"Error in the sendto of the message R"<<endl; exit(1); }
+    cout<<"message R sent to "<<receiver_username<<endl;
+
+    cout<<"R sent: "<<endl;
+    for (int i = 0; i < R_MSG_SIZE; i++){
+        printf("%02hhx", m1[i]);
+    }
+    cout<<endl;
 
     //Receiving m2 message from receiver_username
     char* m2 = (char*)malloc(M2_SIZE);
@@ -858,26 +853,22 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
 
 void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY* peer_key){
     cout<<"Receiver key establishment"<<endl;
+
+    //receiving message M1 from sender_username
     char* m1 = (char*)malloc(R_MSG_SIZE);
-    if (!m1){
-        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
-    }
-
+    if (!m1){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
     unsigned int len = recv(this->server_socket, (void*)m1, R_MSG_SIZE, 0);
-    cout<<len<<endl;
-    if (len < 0){
-        cerr<<"Error in receiving M1 from another user"<<endl;
-        exit(1);
-    }
+    if(len < 0){ cerr<<"Error in receiving M1 from another user"<<endl; exit(1); }
+    if(m1[0] != 6){ cerr<<"Received a message type different from 'key esablishment' type"<<endl; exit(1); }
 
-    if (m1[0] != 6){
-        cerr<<"Received a message type different from 'key esablishment' type"<<endl;
-        exit(1);
+    cout<<"R received: "<<endl;
+    for (int i = 0; i < R_MSG_SIZE; i++){
+        printf("%02hhx", m1[i]);
     }
+    cout<<endl<<"len: "<<len<<endl;
 
-    //Verify message authenticity
-    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around Michelo"<<endl; exit(1); }
+    //verify message M1 authenticity
+    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; exit(1); }
     unsigned int clear_message_len = len-SIGNATURE_SIZE;
     unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
     if (!signature) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
@@ -886,117 +877,72 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     char* clear_message = (char*)malloc(clear_message_len);
     if (!clear_message) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
     memcpy(clear_message, m1, clear_message_len);
-    if(Utility::verifyMessage(peer_key, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+    cout<<"len nel receiver: "<<clear_message_len<<endl;
+    if (Utility::verifyMessage(peer_key, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
         cerr<<"Authentication error while receiving message m1"<<endl; exit(1);
     }
 
+    //creating a buffer containing random nonce R received from sender_username
     unsigned char r[R_SIZE];
     memcpy(r, m1+1, R_SIZE);
-    cout<<"message R received from "<<sender_username<<endl;
+    cout<<"message R correctly received from "<<sender_username<<endl;
 
+    //generating tpubk e tprvk
     pid_t pid;
     char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
     EVP_PKEY* tprivk;
     string tprivk_path = "client/" + this->username + "/tprivk.pem";
     argv1[2] = (char*)malloc(tprivk_path.length()+1);
-    if (!argv1[2]){
-        cerr<<"Malloc didn't work"<<endl;
-        exit(1);
-    }
+    if(!argv1[2]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
     strncpy(argv1[2], tprivk_path.c_str(), tprivk_path.length());
     argv1[2][tprivk_path.length()] = '\0';
     pid = fork();
-    if (pid == 0){
-        execv("/bin/openssl", argv1);
-        exit(0);
-    }
-    if (pid < 0){
-        cerr<<"Error while creating a new process"<<endl;
-        exit(1);
-    }
+    if (pid == 0){ execv("/bin/openssl", argv1); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
     FILE* file = fopen(tprivk_path.c_str(), "r");
-    if(!file){
-        cerr<<"Error while reading the file"<<endl;
-        exit(1);
-    }
+    if(!file){ cerr<<"Error while reading the file"<<endl; exit(1); }
     tprivk = PEM_read_PrivateKey(file, NULL, NULL, NULL);
-    if(!tprivk){
-        cerr<<"Error while reading the private key"<<endl;
-        exit(1);
-    }
+    if(!tprivk) { cerr<<"Error while reading the private key"<<endl; exit(1); }
     fclose(file);
 
     string tpubk_path = "client/" + this->username + "/tpubk.pem";
     char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
     argv2[3] = (char*)malloc(tprivk_path.length()+1);
-    if (!argv2[3]){
-        cerr<<"Malloc didn't work"<<endl;
-        exit(1);
-    }
+    if (!argv2[3]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
     strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
     argv2[3][tprivk_path.length()] = '\0';
     argv2[5] = (char*)malloc(tpubk_path.length()+1);
-    if (!argv2[5]){
-        cerr<<"Malloc didn't work"<<endl;
-        exit(1);
-    }
+    if (!argv2[5]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
     strncpy(argv2[5], tpubk_path.c_str(), tpubk_path.length());
     argv2[5][tpubk_path.length()] = '\0';
     pid = fork();
-    if (pid == 0){
-        execv("/bin/openssl", argv2);
-        exit(0);
-    }
-    if (pid < 0){
-        cerr<<"Error while creating a new process"<<endl;
-        exit(1);
-    }
+    if (pid == 0){ execv("/bin/openssl", argv2); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
     EVP_PKEY* tpubk;
     file = fopen(tpubk_path.c_str(), "r");
-    if(!file){
-        cerr<<"Error while reading the file"<<endl;
-        exit(1);
-    }
+    if(!file){ cerr<<"Error while reading the file"<<endl; exit(1); }
     tpubk = PEM_read_PUBKEY(file, NULL, NULL, NULL);
-    if(!tpubk){
-        cerr<<"Error while reading the public key"<<endl;
-        exit(1);
-    }
+    if(!tpubk){ cerr<<"Error while reading the public key"<<endl; exit(1); }
     fclose(file);
     char* argv3[3] = {strdup("/bin/rm"), strdup(""), NULL};
     argv3[1] = (char*)malloc(tpubk_path.length());
-    if (!argv3[1]){
-        cerr<<"Malloc didn't work"<<endl;
-        exit(1);
-    }
+    if (!argv3[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
     strncpy(argv3[1], tpubk_path.c_str(), tpubk_path.length());
     argv3[1][tpubk_path.length()] = '\0';
     pid = fork();
-    if (pid == 0){
-        execv("/bin/rm", argv3);
-        exit(0);
-    }
-    if (pid < 0){
-        cerr<<"Error while creating a new process"<<endl;
-        exit(1);
-    }
+    if (pid == 0){ execv("/bin/rm", argv3); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
 
     char* argv4[3] = {strdup("/bin/rm"), strdup(""), NULL};
     argv4[1] = (char*)malloc(tprivk_path.length());
-    if (!argv4[1]){
-        cerr<<"Malloc didn't work"<<endl;
-        exit(1);
-    }
+    if (!argv4[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
     strncpy(argv4[1], tprivk_path.c_str(), tprivk_path.length());
     argv4[1][tprivk_path.length()] = '\0';
     pid = fork();
-    if (pid == 0){
-        execv("/bin/rm", argv4);
-        exit(0);
-    }
+    if (pid == 0){ execv("/bin/rm", argv4); exit(0); }
     if (pid < 0){
         cerr<<"Error while creating a new process"<<endl;
         exit(1);

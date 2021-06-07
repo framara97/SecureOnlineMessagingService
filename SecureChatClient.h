@@ -20,9 +20,6 @@ class SecureChatClient{
         //CA certificate
         static X509* ca_certificate;
 
-        //Own certificate
-        static X509* own_certificate;
-
         //CRL
         static X509_CRL* ca_crl;
 
@@ -43,9 +40,6 @@ class SecureChatClient{
 
         //Get the server certificate
         static X509* getCertificate();
-
-        //Get own certificate
-        static X509* getOwnCertificate();
 
         //Get the server CRL
         static X509_CRL* getCRL();
