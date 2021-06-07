@@ -20,3 +20,5 @@ const unsigned int PUBKEY_MSG_SIZE = 2048;
 const unsigned int R_SIZE = 16;
 const unsigned int R_MSG_SIZE = 1 + R_SIZE + SIGNATURE_SIZE;
 const unsigned int GENERAL_MSG_SIZE = 4096;
+const unsigned int M2_SIZE = 1 + R_SIZE + PUBKEY_MSG_SIZE + SIGNATURE_SIZE;
+const unsigned int M3_SIZE = 1 + R_SIZE + 16 + SIGNATURE_SIZE;

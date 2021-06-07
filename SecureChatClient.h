@@ -20,6 +20,9 @@ class SecureChatClient{
         //CA certificate
         static X509* ca_certificate;
 
+        //Own certificate
+        static X509* own_certificate;
+
         //CRL
         static X509_CRL* ca_crl;
 
@@ -40,6 +43,9 @@ class SecureChatClient{
 
         //Get the server certificate
         static X509* getCertificate();
+
+        //Get own certificate
+        static X509* getOwnCertificate();
 
         //Get the server CRL
         static X509_CRL* getCRL();
@@ -83,8 +89,13 @@ class SecureChatClient{
         //User logout
         void logout(unsigned int authenticated);
 
-        void senderKeyEstablishment(string receiver_username);
-        void receiverKeyEstablishment(string sender_username);
+        //encryption algorithm (AES_256)
+        //int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key, unsigned char *iv, unsigned char *ciphertext);
+
+        //key establishment
+        void senderKeyEstablishment(string receiver_username, EVP_PKEY* peer_key);
+        void receiverKeyEstablishment(string sender_username, EVP_PKEY* peer_key);
+
 
     public:
         //Constructor that gets the username, the server address and the server port

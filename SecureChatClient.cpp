@@ -11,6 +11,7 @@ string SecureChatClient::username;
 unsigned int SecureChatClient::choice;
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
+X509* SecureChatClient::own_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
 
 SecureChatClient::SecureChatClient(string client_username, const char *server_addr, unsigned short int server_port) {
@@ -70,6 +71,8 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     }
     choice = input.c_str()[0]-'0';
 
+    cout << "choice: " << choice << endl;
+
     //Send a message to authenticate to the server
     authenticateUser(choice);
 
@@ -92,7 +95,7 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
             peer_key = receiveUserPubKey(selected_user);
 
             //Handle key establishment
-            senderKeyEstablishment(selected_user);
+            senderKeyEstablishment(selected_user, peer_key);
         }
     } else if(choice == 1){ //client wants to receive a message
         string sender_username = waitForRTT();
@@ -118,7 +121,7 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
             peer_key = receiveUserPubKey(sender_username);
 
             //Handle key establishment
-            receiverKeyEstablishment(sender_username);
+            receiverKeyEstablishment(sender_username, peer_key);
         }
     }
 };
@@ -699,7 +702,46 @@ void SecureChatClient::logout(unsigned int authenticated){
     close(this->server_socket);
 }
 
-void SecureChatClient::senderKeyEstablishment(string receiver_username){
+int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key, unsigned char *iv, unsigned char *ciphertext){
+    EVP_CIPHER_CTX *ctx;
+
+    int len, ciphertext_len;
+
+    cout<<"Byte da cifrare: "<<plaintext_len<<endl;
+
+    ctx = EVP_CIPHER_CTX_new();
+    EVP_EncryptInit(ctx, EVP_aes_256_ecb(), key, iv);
+    EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len);
+    ciphertext_len = len;
+    cout<<"Byte cifrati: "<<ciphertext_len<<endl;
+    EVP_EncryptFinal(ctx, ciphertext + len, &len);
+    ciphertext_len += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    return ciphertext_len;
+}
+
+int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key, unsigned char *iv, unsigned char *decryptedtext){
+	EVP_CIPHER_CTX *ctx;
+	
+	int plainlen, outlen;
+	
+	ctx = EVP_CIPHER_CTX_new();
+	EVP_DecryptInit(ctx, EVP_aes_256_ecb(), key, iv);
+	EVP_DecryptUpdate(ctx, decryptedtext, &outlen, ciphertext, ciphertext_len);
+  	plainlen = outlen;
+  	int res = EVP_DecryptFinal(ctx, decryptedtext + outlen, &outlen);
+  	if(res==0)
+  		printf("Error in decryption!\n");
+  	plainlen += outlen;
+  	
+  	EVP_CIPHER_CTX_free(ctx);
+
+	return outlen;
+}
+
+void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY* peer_key){
     cout<<"Sender key establishment"<<endl;
     RAND_poll();
     unsigned char r[R_SIZE];
@@ -731,20 +773,90 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username){
         cerr<<"Access out-of-bound"<<endl;
         exit(1);
     }
-    memcpy(m1 + len, signature, signature_len);
+    memcpy(m1+len, signature, signature_len);
 
-    for (int i = 0; i < 5; i++){
-        printf("%02hhx", m1[i]);
+    if (send(this->server_socket, m1, msg_len, 0) < 0) { cerr<<"Error in the sendto of the message R."<<endl; exit(1); }
+    cout<<"message R sent to"<<receiver_username<<endl;
+
+    //Receiving m2 message from receiver_username
+    char* m2 = (char*)malloc(M2_SIZE);
+    if (!m2){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1);}
+    len = recv(this->server_socket, (void*)m2, M2_SIZE, 0);
+    if (len < 0) { cerr<<"Error in receiving M2 from another user"<<endl; exit(1); }
+
+    //Verify message authenticity
+    if(len <= SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; exit(1); }
+    unsigned int clear_message_len = len-SIGNATURE_SIZE;
+    signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    if (!signature) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    if ((unsigned long)m2 + clear_message_len < (unsigned long)m2) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(signature, m2+clear_message_len, SIGNATURE_SIZE);
+    char* clear_message = (char*)malloc(clear_message_len);
+    if (!clear_message) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    memcpy(clear_message, m2, clear_message_len);
+    if(Utility::verifyMessage(peer_key, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error while receiving message m1"<<endl; exit(1);
     }
-    cout<<endl<<len<<endl;
 
-    if (send(this->server_socket, m1, len, 0) < 0){
-		cerr<<"Error in the sendto of the key establishment message."<<endl;
-		exit(1);
-	}
+    //Check if the two Rs are equal
+    char R_received[R_SIZE];
+    if (1 + R_SIZE < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    unsigned int message_len = R_SIZE+1;
+    if (1 + (unsigned long)m2 < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(R_received, m2+1, R_SIZE);
+    //TODO: fare meglio il confronto tra i due buffer contenenti R
+    unsigned int ok = 0;
+    for (int i = 0; i < R_SIZE; i++){ 
+        if(r[i] != R_received[i]) { ok = 1; break; }
+    }
+    if(ok==1) { cout<<"Error !"<<endl; exit(1); }
+    else { cout<<"Nonce R correctly exchanged between "<<username<<" and "<<receiver_username<<endl; }
+
+    //key session generation
+    RAND_poll();
+    unsigned char k[R_SIZE];
+    RAND_bytes(k, R_SIZE);
+
+    unsigned char* Tpubk_received = (unsigned char*)malloc(PUBKEY_MSG_SIZE);
+    if (!Tpubk_received) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    if (message_len + (unsigned long)m2 < message_len) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(Tpubk_received, m2+message_len, PUBKEY_MSG_SIZE);
+    if (message_len + PUBKEY_MSG_SIZE < message_len) { cerr<<"Wrap around"<<endl; exit(1); }
+    message_len += PUBKEY_MSG_SIZE;
+
+    BIO* mbio = BIO_new(BIO_s_mem());
+    BIO_write(mbio, Tpubk_received, PUBKEY_MSG_SIZE);
+    EVP_PKEY* tpubk = PEM_read_bio_PUBKEY(mbio, NULL, NULL, NULL);
+    BIO_free(mbio);
+/*
+    unsigned char* ciphertext = (unsigned char *)malloc(sizeof(k)+16);
+
+    // Encrypt utility function
+    int ciphertext_len = encrypt(k, R_SIZE, Tpubk_received, NULL, ciphertext);
+
+    char m3[M3_SIZE];
+    m3[0] = 8;
+    if (1 + (unsigned long)m3 < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(m3+1, ciphertext, ciphertext_len);
+    if (1 + ciphertext_len < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    len = 1 + ciphertext_len;
+
+    Utility::signMessage(client_prvkey, m3, len, &signature, &signature_len);
+    if (len + (unsigned long)m3 < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    unsigned int m3_len = len + signature_len;
+    //if (msg_len > RESPONSE_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    if (len + (unsigned long)m3 < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(m3+len, signature, signature_len);
+
+    if (send(this->server_socket, m3, m3_len, 0) < 0) { cerr<<"Error in the sendto of the m3 message."<<endl; exit(1); }
+    cout<<"message m3 sent from "<<username<<" to "<<receiver_username<<endl;
+*/    
+    //TODO: delete Tpubk
+
 }
 
-void SecureChatClient::receiverKeyEstablishment(string sender_username){
+void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY* peer_key){
     cout<<"Receiver key establishment"<<endl;
     char* m1 = (char*)malloc(R_MSG_SIZE);
     if (!m1){
@@ -759,22 +871,32 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
 
-    for (int i = 0; i < 5; i++){
-        printf("%02hhx", m1[i]);
-    }
-    cout<<endl;
-
     if (m1[0] != 6){
         cerr<<"Received a message type different from 'key esablishment' type"<<endl;
         exit(1);
     }
 
+    //Verify message authenticity
+    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around Michelo"<<endl; exit(1); }
+    unsigned int clear_message_len = len-SIGNATURE_SIZE;
+    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
+    if (!signature) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    if ((unsigned long)m1 + clear_message_len < (unsigned long)m1) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(signature, m1+clear_message_len, SIGNATURE_SIZE);
+    char* clear_message = (char*)malloc(clear_message_len);
+    if (!clear_message) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    memcpy(clear_message, m1, clear_message_len);
+    if(Utility::verifyMessage(peer_key, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error while receiving message m1"<<endl; exit(1);
+    }
+
     unsigned char r[R_SIZE];
-    memcpy(r, m1, R_SIZE);
+    memcpy(r, m1+1, R_SIZE);
+    cout<<"message R received from "<<sender_username<<endl;
 
     pid_t pid;
     char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
-    EVP_PKEY* privkey;
+    EVP_PKEY* tprivk;
     string tprivk_path = "client/" + this->username + "/tprivk.pem";
     argv1[2] = (char*)malloc(tprivk_path.length()+1);
     if (!argv1[2]){
@@ -798,8 +920,8 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
     }
-    privkey = PEM_read_PrivateKey(file, NULL, NULL, NULL);
-    if(!privkey){
+    tprivk = PEM_read_PrivateKey(file, NULL, NULL, NULL);
+    if(!tprivk){
         cerr<<"Error while reading the private key"<<endl;
         exit(1);
     }
@@ -831,14 +953,14 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
     waitpid(pid, NULL, 0);
-    EVP_PKEY* pubkey;
+    EVP_PKEY* tpubk;
     file = fopen(tpubk_path.c_str(), "r");
     if(!file){
         cerr<<"Error while reading the file"<<endl;
         exit(1);
     }
-    pubkey = PEM_read_PUBKEY(file, NULL, NULL, NULL);
-    if(!pubkey){
+    tpubk = PEM_read_PUBKEY(file, NULL, NULL, NULL);
+    if(!tpubk){
         cerr<<"Error while reading the public key"<<endl;
         exit(1);
     }
@@ -880,4 +1002,51 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username){
         exit(1);
     }
     waitpid(pid, NULL, 0);
+
+    // Send M2: <R || TpubKb>B
+    //we don't send the certificate because the other peer has yet the public key
+    char* m2 = (char*)malloc(M2_SIZE);
+    if (!m2){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1);}
+
+    m2[0] = 6;
+
+    //inserting <R || TpubKb>B in the m2 message
+    if (1 + (unsigned long)m2 < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(m2+1, r, R_SIZE);
+    if (1 + R_SIZE < 1) { cerr<<"Wrap around"<<endl; exit(1); }
+    len = 1 + R_SIZE;
+    char* pubkey_buf = NULL;
+    BIO* mbio = BIO_new(BIO_s_mem());
+    PEM_write_bio_PUBKEY(mbio, tpubk);
+    long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
+    if (1 + pubkey_size > PUBKEY_MSG_SIZE) { cerr<<"Access out-of-bound"<<endl; exit(1); }
+    if (len + (unsigned long)m2 < len) { cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(m2+len, pubkey_buf, pubkey_size);
+    if (pubkey_size + len < pubkey_size){ cerr<<"Wrap around"<<endl; exit(1); }
+    len += pubkey_size;
+        //unsigned char* signature;
+    unsigned int signature_len;
+    Utility::signMessage(client_prvkey, m2, len, &signature, &signature_len);
+    if (len + (unsigned long)m2 < len) { cerr<<"Wrap around."<<endl; exit(1); }
+    memcpy(m2+len, signature, signature_len);
+    if (len + signature_len < len) { cerr<<"Wrap around."<<endl; exit(1); }
+    len += signature_len;
+
+    //sending m2 message to the sender_username
+    if (send(this->server_socket, m2, len, 0) < 0) { cerr<<"Error in the sendto of the m2 message."<<endl; exit(1); }
+    cout<<"message m2 sent from "<<username<<" to "<<sender_username<<endl;
+
+    //TODO: inserire il controllo sul tipo di messaggio ricevuto
+
+    unsigned char m4[M3_SIZE];
+
+    //receiving m3 message from the sender_username
+    len = recv(this->server_socket, (void*)m4, M3_SIZE, 0);
+    if (len < 0){ cerr<<"Error in receiving message R from another user"<<endl; exit(1); }
+    cout<<"message m3 received from "<<sender_username<<endl;
+/*
+    unsigned char* decryptedtext = (unsigned char *) malloc(sizeof(ciphertext));
+
+    decryptedtext_len = decrypt(ciphertext, ciphertext_len, key, NULL, decryptedtext);
+*/
 }

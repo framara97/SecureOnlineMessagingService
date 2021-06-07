@@ -122,28 +122,42 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         while(!(*users).at(receiver_username).ready)
             (*users).at(receiver_username).cv.wait(lck);
 
-        cout<<"Th. Antetokoumpo"<<endl;
-
         //pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
-        cout<<"Bonaccorsi: "<<(*users).at(receiver_username).responses.at(username)<<endl;
         if((*users).at(receiver_username).responses.at(username) == 1) {
             //Server sends public keys to the user
-            cout<<"Pola"<<endl;
             sendUserPubKey(receiver_username, data_socket);
         }
         //pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
 
-        char msg[GENERAL_MSG_SIZE];
+        // R message received by username and forwarded to receiver_username
+        char msg_R[GENERAL_MSG_SIZE];
         unsigned int len;
+                //receive(data_socket, username, len, msg);
+        len = recv(data_socket, (void*)msg_R, GENERAL_MSG_SIZE, 0);
+        if (len < 0) { cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
+        cout<<"message R received from "<<username<<endl;
+        msg_R[len] = '\0';
+        forward(receiver_username, msg_R, len);
+        cout<<"message R forwaded to "<<receiver_username<<endl;
 
-        receive(data_socket, username, len, msg);
-        cout<<"Vaglini: "<<endl;
-        for (int i = 0; i < 5; i++){
-            printf("%02hhx", msg[i]);
-        }
-        cout<<endl;
-        msg[len] = '\0';
-        forward(receiver_username, msg, len);
+        // m2 message received by receiver_username and forwarded to username
+        char msg_m2[M2_SIZE];
+        int receiver_socket = (*users).at(receiver_username).socket;
+        len = recv(receiver_socket, (void*)msg_m2, M2_SIZE, 0);
+        if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
+        cout<<"message m2 received from "<<receiver_username<<endl;
+        msg_m2[len] = '\0';
+        forward(username, msg_m2, len);
+        cout<<"message m2 forwaded to "<<username<<endl;
+
+        // m3 message received by username and forwarded to receiver_username
+        char msg_m3[M3_SIZE];
+        len = recv(data_socket, (void*)msg_m3, M3_SIZE, 0);
+        if (len < 0) { cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
+        cout<<"message m3 received from "<<username<<endl;
+        msg_m3[len] = '\0';
+        forward(receiver_username, msg_m3, len);
+        cout<<"message m3 forwaded to "<<receiver_username<<endl;
     }
     if (status == 1){ //user wants to receive a message
         //Server waits for the response (accept or refuse) from the final receiver
@@ -294,14 +308,14 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
     char* clear_message = (char*)malloc(clear_message_len);
     if (!clear_message){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     memcpy(clear_message, authentication_buf, clear_message_len);
     EVP_PKEY* pubkey = getUserKey(username);
 
     if(Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
         cerr<<"Thread "<<gettid()<<": Authentication error while receiving the authentication"<<endl;
-        exit(1);
+        pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Authentication of authentication message is ok"<<endl;
 
@@ -693,29 +707,29 @@ char* SecureChatServer::receive(int data_socket, string username, unsigned int &
     }
 
     //pthread_mutex_lock(&(*users).at(username).user_mutex);
-    len = recv(data_socket, (void*)buf, GENERAL_MSG_SIZE, 0);
+    len = recv(data_socket, (void*)buf, M2_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl;
         pthread_exit(NULL);
     }
     //pthread_mutex_unlock(&(*users).at(username).user_mutex);
-
+/*
     cout<<"Marcelloni: "<<endl;
     for (int i = 0; i < 5; i++){
         printf("%02hhx", buf[i]);
     }
     cout<<endl;
-
+*/
     return buf;
 }
 
 void SecureChatServer::forward(string username, char* msg, unsigned int len){
-    cout<<"Ducange: "<<endl;
+/*    cout<<"Ducange: "<<endl;
     for (int i = 0; i < 5; i++){
         printf("%02hhx", msg[i]);
     }
     cout<<endl;
-    int data_socket = (*users).at(username).socket;
+ */   int data_socket = (*users).at(username).socket;
     if (send(data_socket, msg, len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the forward of the Response to RTT"<<endl;
 		pthread_exit(NULL);
