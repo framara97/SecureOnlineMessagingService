@@ -93,100 +93,233 @@ void SecureChatServer::listenRequests(){
 }
 
 void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_address){
-    //Send certificate to the new user
+
+    /* ---------------------------------------------------------- *\
+    |* Send certificate to the new user                           *|
+    \* ---------------------------------------------------------- */
     sendCertificate(data_socket);
     cout<<"Thread "<<gettid()<<": Certificate sent"<<endl;
 
+    /* ---------------------------------------------------------- *\
+    |* Receive authentication from the user                       *|
+    \* ---------------------------------------------------------- */
     unsigned int status;
-    //Receive authentication from the user
     string username = receiveAuthentication(data_socket, status);
 
-    //Change user status to 1 if the user is available to receive a message
+    /* ---------------------------------------------------------- *\
+    |* Change user status to 1 if the user is available to        *|
+    |* receive a message                                          *|
+    \* ---------------------------------------------------------- */
     changeUserStatus(username, status, data_socket);
 
+    /* ---------------------------------------------------------- *\
+    |* Print user list                                            *|
+    \* ---------------------------------------------------------- */
     printUserList();
 
-    if(status == 0){//user wants to send message
-        //Send the list of users that are available to receive
+    /* ---------------------------------------------------------- *\
+    |* Sender case                                                *|
+    \* ---------------------------------------------------------- */
+    if(status == 0){
+        /* ---------------------------------------------------------- *\
+        |* Send the list of users that are available to receive       *|
+        \* ---------------------------------------------------------- */
         sendAvailableUsers(data_socket, username);
         
-        //Server's thread receive the RTT message
+        /* ---------------------------------------------------------- *\
+        |* Server's thread receive the RTT message                    *|
+        \* ---------------------------------------------------------- */
         string receiver_username = receiveRTT(data_socket, username);
 
-        //Server forwards the RTT to the final receiver
+        /* ---------------------------------------------------------- *\
+        |* Server forwards the RTT to the final receiver              *|
+        \* ---------------------------------------------------------- */
         forwardRTT(receiver_username, username);
 
-        //wait on the condition variable of the receiver
-        unique_lock<mutex> lck((*users).at(receiver_username).mtx);
+        /* ---------------------------------------------------------- *\
+        |* Wait on the condition variable of the receiver             *|
+        \* ---------------------------------------------------------- */
+        wait(receiver_username);
 
-        while(!(*users).at(receiver_username).ready)
-            (*users).at(receiver_username).cv.wait(lck);
-
-        //pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
-        if((*users).at(receiver_username).responses.at(username) == 1) {
-            //Server sends public keys to the user
-            sendUserPubKey(receiver_username, data_socket);
+        //pthread_mutex_lock(&(*users).at(username).user_mutex);
+        if((*users).at(receiver_username).responses.at(username) != 1) {
+            pthread_exit(NULL);
         }
-        //pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
 
-        // R message received by username and forwarded to receiver_username
-        char msg_R[GENERAL_MSG_SIZE];
-        unsigned int len;
-                //receive(data_socket, username, len, msg);
-        len = recv(data_socket, (void*)msg_R, GENERAL_MSG_SIZE, 0);
-        if (len < 0) { cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
-        cout<<"message R received from "<<username<<endl;
-        msg_R[len] = '\0';
-        forward(receiver_username, msg_R, len);
-        cout<<"message R forwaded to "<<receiver_username<<endl;
-
-        // m2 message received by receiver_username and forwarded to username
-        char msg_m2[M2_SIZE];
         int receiver_socket = (*users).at(receiver_username).socket;
-        len = recv(receiver_socket, (void*)msg_m2, M2_SIZE, 0);
-        if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
-        cout<<"message m2 received from "<<receiver_username<<endl;
-        msg_m2[len] = '\0';
-        forward(username, msg_m2, len);
-        cout<<"message m2 forwaded to "<<username<<endl;
+        thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
+        handler.detach();
 
-        // m3 message received by username and forwarded to receiver_username
-        char msg_m3[M3_SIZE];
-        len = recv(data_socket, (void*)msg_m3, M3_SIZE, 0);
-        if (len < 0) { cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
-        cout<<"message m3 received from "<<username<<endl;
-        msg_m3[len] = '\0';
-        forward(receiver_username, msg_m3, len);
-        cout<<"message m3 forwaded to "<<receiver_username<<endl;
+        // /* ---------------------------------------------------------- *\
+        // |* Server sends receiver public key to the sender user        *|
+        // \* ---------------------------------------------------------- */
+        // sendUserPubKey(receiver_username, data_socket);
+        // //pthread_mutex_unlock(&(*users).at(username).user_mutex);
+
+
+        // /* ---------------------------------------------------------- *\
+        // |* *************************   M1   ************************* *|
+        // \* ---------------------------------------------------------- */
+
+
+        // /* ---------------------------------------------------------- *\
+        // |* Server receives the message M1 from the sender user        *|
+        // \* ---------------------------------------------------------- */
+        // char m1[M1_SIZE];
+        // unsigned int len;
+        // receive(data_socket, username, len, m1, M1_SIZE);
+        // /* ---------------------------------------------------------- *\
+        // |* Server forwards the message M1 to the receiver user        *|
+        // \* ---------------------------------------------------------- */
+        // Utility::printMessage("M1 da forwardare:", (unsigned char*)m1, len);
+        // wait(receiver_username);
+        // forward(receiver_username, m1, len);
+        // cout<<"message R forwaded to "<<receiver_username<<endl;
+        // notify(username);
+
+
+        // /* ---------------------------------------------------------- *\
+        // |* *************************   M3   ************************* *|
+        // \* ---------------------------------------------------------- */
+
+
+        // /* ---------------------------------------------------------- *\
+        // |* Server receives the message M3 from the sender user        *|
+        // \* ---------------------------------------------------------- */
+        // wait(receiver_username);
+        // char m3[M3_SIZE];
+        // receive(data_socket, username, len, m3, M3_SIZE);
+        // cout<<"message m3 received from "<<username<<endl;
+        // /* ---------------------------------------------------------- *\
+        // |* Server forwards the message M3 to the receiver user        *|
+        // \* ---------------------------------------------------------- */
+        // forward(receiver_username, m3, len);
+        // cout<<"message m3 forwaded to "<<receiver_username<<endl;
+        // notify(username);
     }
+    /* ---------------------------------------------------------- *\
+    |* Receiver case                                              *|
+    \* ---------------------------------------------------------- */
     if (status == 1){ //user wants to receive a message
-        //Server waits for the response (accept or refuse) from the final receiver
+        /* ---------------------------------------------------------- *\
+        |* Server waits for the response (accept or refuse)           *|
+        |* from the final receiver                                    *|
+        \* ---------------------------------------------------------- */
         unsigned int response;
         string sender_username = receiveResponse(data_socket, username, response);
 
-        //Server forwards the response to the sender
+        /* ---------------------------------------------------------- *\
+        |* Server forwards the response to the sender                 *|
+        \* ---------------------------------------------------------- */
         forwardResponse(sender_username, response);
 
-        //Frees the other thread that is handling the sender
-        unique_lock<mutex> lck((*users).at(username).mtx);
-        pthread_mutex_lock(&(*users).at(username).user_mutex);
-        (*users).at(username).ready = 1;
-        pthread_mutex_unlock(&(*users).at(username).user_mutex);
-        (*users).at(username).cv.notify_all();
+        /* ---------------------------------------------------------- *\
+        |* Frees the other thread that is handling the sender         *|
+        \* ---------------------------------------------------------- */
+        notify(username);
 
-        char msg[GENERAL_MSG_SIZE];
-        unsigned int len;
+        /* ---------------------------------------------------------- *\
+        |* Wait on the condition variable of the sender               *|
+        \* ---------------------------------------------------------- */
+        // unique_lock<mutex> lck((*users).at(sender_username).mtx);
+
+        // while(!(*users).at(sender_username).ready)
+        //     (*users).at(sender_username).cv.wait(lck);
         
-        if (response == 1){
+        // if (response == 1){
 
-            sendUserPubKey(sender_username, data_socket);
-            //strncpy(msg, receive(data_socket, username, len), len);
-            //msg[len] = '\0';
-            //forward(sender_username, msg, len);
-        }
+        //     /* ---------------------------------------------------------- *\
+        //     |* Server sends sender public key to the receiver user        *|
+        //     \* ---------------------------------------------------------- */
+        //     sendUserPubKey(sender_username, data_socket);
+        //     notify(username);
+
+
+        //     /* ---------------------------------------------------------- *\
+        //     |* *************************   M2   ************************* *|
+        //     \* ---------------------------------------------------------- */
+
+
+        //     /* ---------------------------------------------------------- *\
+        //     |* Server receives the message M2 from the receiver user      *|
+        //     \* ---------------------------------------------------------- */
+        //     char m2[M2_SIZE];
+        //     unsigned int len;
+        //     receive(data_socket, username, len, m2, M2_SIZE);
+        //     cout<<"message m2 received from "<<username<<endl;
+        //     /* ---------------------------------------------------------- *\
+        //     |* Server forwards the message M2 to the sender user          *|
+        //     \* ---------------------------------------------------------- */
+        //     wait(sender_username);
+        //     forward(sender_username, m2, len);
+        //     cout<<"message m2 forwaded to "<<sender_username<<endl;
+        //     notify(username);
+        // }
     }
 
     pthread_exit(NULL);
+}
+
+void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string sender, string receiver){
+     /* ---------------------------------------------------------- *\
+    |* Server sends receiver public key to the sender user        *|
+    \* ---------------------------------------------------------- */
+    sendUserPubKey(receiver, sender_socket);
+    sendUserPubKey(sender, receiver_socket);
+
+    /* ---------------------------------------------------------- *\
+    |* *************************   M1   ************************* *|
+    \* ---------------------------------------------------------- */
+
+
+    /* ---------------------------------------------------------- *\
+    |* Server receives the message M1 from the sender user        *|
+    \* ---------------------------------------------------------- */
+    char m1[M1_SIZE];
+    unsigned int len;
+    receive(sender_socket, sender, len, m1, M1_SIZE);
+    /* ---------------------------------------------------------- *\
+    |* Server forwards the message M1 to the receiver user        *|
+    \* ---------------------------------------------------------- */
+    Utility::printMessage("M1 da forwardare:", (unsigned char*)m1, len);
+    forward(receiver, m1, len);
+    cout<<"message R forwaded to "<<receiver<<endl;
+
+
+    /* ---------------------------------------------------------- *\
+    |* *************************   M2   ************************* *|
+    \* ---------------------------------------------------------- */
+
+
+    /* ---------------------------------------------------------- *\
+    |* Server receives the message M2 from the receiver user      *|
+    \* ---------------------------------------------------------- */
+    char m2[M2_SIZE];
+    receive(receiver_socket, receiver, len, m2, M2_SIZE);
+    cout<<"message m2 received from "<<receiver<<endl;
+    /* ---------------------------------------------------------- *\
+    |* Server forwards the message M2 to the sender user          *|
+    \* ---------------------------------------------------------- */
+    forward(sender, m2, len);
+    cout<<"message m2 forwaded to "<<sender<<endl;
+
+
+    /* ---------------------------------------------------------- *\
+    |* *************************   M3   ************************* *|
+    \* ---------------------------------------------------------- */
+
+
+    /* ---------------------------------------------------------- *\
+    |* Server receives the message M3 from the sender user        *|
+    \* ---------------------------------------------------------- */
+    char m3[M3_SIZE];
+    receive(sender_socket, sender, len, m3, M3_SIZE);
+    cout<<"message m3 received from "<<sender<<endl;
+    /* ---------------------------------------------------------- *\
+    |* Server forwards the message M3 to the receiver user        *|
+    \* ---------------------------------------------------------- */
+    forward(receiver, m3, len);
+    cout<<"message m3 forwaded to "<<receiver<<endl;
 }
 
 void SecureChatServer::sendCertificate(int process_socket){
@@ -217,7 +350,7 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
     PEM_write_bio_PUBKEY(mbio, pubkey);
 
     long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
-    if (1 + PUBKEY_SIZE < 1){
+    if (1 + pubkey_size < 1){
         cerr<<"Wrap around"<<endl;
         pthread_exit(NULL);
     }
@@ -227,6 +360,7 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
         pthread_exit(NULL);
     }
     memcpy(buf+1, pubkey_buf, pubkey_size);
+    BIO_free(mbio);
 
     unsigned char* signature;
     unsigned int signature_len;
@@ -246,13 +380,14 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
     }
     unsigned int msg_len = len + signature_len;
     memcpy(buf+len, signature, signature_len);
+
+    Utility::printMessage("Message containing the user public key:", (unsigned char*)buf, msg_len);
 	
 	if (send(data_socket, buf, msg_len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the public key to "<<username<<endl;
 		pthread_exit(NULL);
 	}
     
-    BIO_free(mbio);
 	return;
 }
 
@@ -483,7 +618,7 @@ string SecureChatServer::receiveRTT(int data_socket, string username){
 
 void SecureChatServer::forwardRTT(string receiver_username, string sender_username){
     //TODO gestire la RTT inviandola al receiver
-    int data_socket = (*users).find(receiver_username)->second.socket;
+    int data_socket = (*users).at(receiver_username).socket;
     // 3 | sender_username_len | sender_username | digest
     char msg[RTT_MAX_SIZE];
     msg[0] = 3; //Type = 3, request to talk message
@@ -700,27 +835,20 @@ void SecureChatServer::checkLogout(int data_socket, char* msg, unsigned int buff
     }
 }
 
-char* SecureChatServer::receive(int data_socket, string username, unsigned int &len, char* buf){
+void SecureChatServer::receive(int data_socket, string username, unsigned int &len, char* buf, const unsigned int max_size){
     if (!buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         pthread_exit(NULL);
     }
 
     //pthread_mutex_lock(&(*users).at(username).user_mutex);
-    len = recv(data_socket, (void*)buf, M2_SIZE, 0);
+    len = recv(data_socket, (void*)buf, max_size, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl;
         pthread_exit(NULL);
     }
     //pthread_mutex_unlock(&(*users).at(username).user_mutex);
-/*
-    cout<<"Marcelloni: "<<endl;
-    for (int i = 0; i < 5; i++){
-        printf("%02hhx", buf[i]);
-    }
-    cout<<endl;
-*/
-    return buf;
+
 }
 
 void SecureChatServer::forward(string username, char* msg, unsigned int len){
@@ -734,4 +862,20 @@ void SecureChatServer::forward(string username, char* msg, unsigned int len){
 		cerr<<"Thread "<<gettid()<<": Error in the forward of the Response to RTT"<<endl;
 		pthread_exit(NULL);
     }
+}
+
+void SecureChatServer::wait(string username){
+    unique_lock<mutex> lck((*users).at(username).mtx);
+    while(!(*users).at(username).ready)
+            (*users).at(username).cv.wait(lck);
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
+    (*users).at(username).ready = 0;
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
+}
+
+void SecureChatServer::notify(string username){
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
+    (*users).at(username).ready = 1;
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    (*users).at(username).cv.notify_all();
 }

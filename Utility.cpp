@@ -2,6 +2,9 @@
 #include <iostream>
 #include <cstring>
 #include <fstream>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 const char* Utility::HOME_DIR = "/home/";
 
@@ -114,6 +117,7 @@ int Utility::verifyMessage(EVP_PKEY* pubkey, char* clear_message, unsigned int c
     EVP_VerifyInit(ctx, EVP_sha256());
     EVP_VerifyUpdate(ctx, clear_message, clear_message_len);
     int ret = EVP_VerifyFinal(ctx, signature, signature_len, pubkey);
+    cout<<"Ret: "<<ret<<endl;
     EVP_MD_CTX_free(ctx);
     return ret;
 }
@@ -136,4 +140,146 @@ bool Utility::isNumeric(string str){
       if (isdigit(str[i]) == false)
          return false;
       return true;
+}
+
+EVP_PKEY* Utility::generateTprivK(string username){
+    pid_t pid;
+    char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
+    EVP_PKEY* tprivk;
+    string tprivk_path = "./client/" + username + "/tprivk.pem";
+    argv1[2] = (char*)malloc(tprivk_path.length()+1);
+    if(!argv1[2]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    strncpy(argv1[2], tprivk_path.c_str(), tprivk_path.length());
+    argv1[2][tprivk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){ execv("/bin/openssl", argv1); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    waitpid(pid, NULL, 0);
+    FILE* file = fopen(tprivk_path.c_str(), "r");
+    if(!file){ cerr<<"Error while reading the fileX"<<endl; exit(1); }
+    tprivk = PEM_read_PrivateKey(file, NULL, NULL, NULL);
+    if(!tprivk) { cerr<<"Error while reading the private key"<<endl; exit(1); }
+    fclose(file);
+    return tprivk;
+}
+
+EVP_PKEY* Utility::generateTpubK(string username){
+    string tprivk_path = "./client/" + username + "/tprivk.pem";
+    pid_t pid;
+    string tpubk_path = "./client/" + username + "/tpubk.pem";
+    char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
+    argv2[3] = (char*)malloc(tprivk_path.length()+1);
+    if (!argv2[3]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
+    argv2[3][tprivk_path.length()] = '\0';
+    argv2[5] = (char*)malloc(tpubk_path.length()+1);
+    if (!argv2[5]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    strncpy(argv2[5], tpubk_path.c_str(), tpubk_path.length());
+    argv2[5][tpubk_path.length()] = '\0';
+    pid = fork();
+    if (pid == 0){ execv("/bin/openssl", argv2); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    waitpid(pid, NULL, 0);
+    EVP_PKEY* tpubk;
+    FILE* file = fopen(tpubk_path.c_str(), "r");
+    if(!file){ cerr<<"Error while reading the file"<<endl; exit(1); }
+    tpubk = PEM_read_PUBKEY(file, NULL, NULL, NULL);
+    if(!tpubk){ cerr<<"Error while reading the public key"<<endl; exit(1); }
+    fclose(file);
+    return tpubk;
+}
+
+void Utility::removeTprivK(string username){
+    string tprivk_path = "./client/" + username + "/tprivk.pem";
+    char* argv4[3] = {strdup("/bin/rm"), strdup(""), NULL};
+    argv4[1] = (char*)malloc(tprivk_path.length());
+    if (!argv4[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    strncpy(argv4[1], tprivk_path.c_str(), tprivk_path.length());
+    argv4[1][tprivk_path.length()] = '\0';
+    pid_t pid = fork();
+    if (pid == 0){ execv("/bin/rm", argv4); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    waitpid(pid, NULL, 0);
+}
+
+void Utility::removeTpubK(string username){
+    string tpubk_path = "./client/" + username + "/tpubk.pem";
+    char* argv3[3] = {strdup("/bin/rm"), strdup(""), NULL};
+    argv3[1] = (char*)malloc(tpubk_path.length()+1);
+    cout<<tpubk_path.length()<<endl;
+    if (!argv3[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    strncpy(argv3[1], tpubk_path.c_str(), tpubk_path.length());
+    argv3[1][tpubk_path.length()] = '\0';
+    pid_t pid = fork();
+    if (pid == 0){ execv("/bin/rm", argv3); exit(0); }
+    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    waitpid(pid, NULL, 0);
+}
+
+/* ---------------------------------------------------------- *\
+|* This function works with both pubkey or privkey as input   *|
+\* ---------------------------------------------------------- */
+void Utility::printPublicKey(EVP_PKEY* key){
+    cout<<"Printing key: "<<endl;
+    BIO *bp = BIO_new_fp(stdout, BIO_NOCLOSE);
+    EVP_PKEY_print_public(bp, key, 0, NULL);
+    BIO_free(bp);
+}
+
+bool Utility::compareR(const unsigned char* R1, const unsigned char* R2){
+    bool ok = true;
+    for (int i = 0; i < R_SIZE; i++){ 
+        if(R1[i] != R2[i]) { ok = false; break; }
+    }
+    if(ok==false) { cout<<"Nonce R not correctly exchanged"<<endl; }
+    else { cout<<"Nonce R correctly exchanged"<<endl; }
+    return ok;
+}
+
+bool Utility::encryptMessage(int plaintext_len, EVP_PKEY* pubkey, unsigned char* plaintext, unsigned char* &ciphertext, unsigned char* &encrypted_key, unsigned char* &iv, int& encrypted_key_len, int& outlen, unsigned int& cipherlen){
+    unsigned int iterations = (plaintext_len%EVP_CIPHER_block_size(EVP_aes_256_cbc())==0) ? plaintext_len/EVP_CIPHER_block_size(EVP_aes_256_cbc()) : plaintext_len/EVP_CIPHER_block_size(EVP_aes_256_cbc()) + 1;
+    cout<<"EVP_PKEY_size: "<<EVP_PKEY_size(pubkey)<<endl;
+    encrypted_key = (unsigned char*)malloc(EVP_PKEY_size(pubkey));
+    cout<<"sizeof(plaintext)+16: "<<sizeof(plaintext) + 16<<endl;
+    ciphertext = (unsigned char*)malloc(sizeof(plaintext) + 16);
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    cipherlen = 0;
+    cout<<"iv: "<<EVP_CIPHER_iv_length(EVP_aes_256_cbc())<<endl;
+    iv = (unsigned char*) malloc(EVP_CIPHER_iv_length(EVP_aes_256_cbc()));
+    int ret = EVP_SealInit(ctx, EVP_aes_256_cbc(), &encrypted_key, &encrypted_key_len, iv, &pubkey, 1);
+    if(ret == 0) { return false; }
+    ret = EVP_SealUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
+    if(ret == 0) { return false; }
+    cipherlen += outlen;
+    ret = EVP_SealFinal(ctx, ciphertext + cipherlen, &outlen);
+    if(ret == 0) { return false; }
+    cipherlen += outlen;
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+
+bool Utility::decryptMessage(unsigned char* &plaintext, unsigned char *ciphertext, unsigned int ciphertext_len, unsigned char* iv, unsigned char* encrypted_key, unsigned int encrypted_key_len, EVP_PKEY* prvkey, unsigned int& plaintext_len){
+    unsigned int iterations = (ciphertext_len%EVP_CIPHER_block_size(EVP_aes_256_cbc())==0) ? ciphertext_len/EVP_CIPHER_block_size(EVP_aes_256_cbc()) : ciphertext_len/EVP_CIPHER_block_size(EVP_aes_256_cbc()) + 1;
+    cout<<"Ciphertext len: "<<ciphertext_len<<endl;
+    const EVP_CIPHER* cipher = EVP_aes_256_cbc();
+    int outlen;
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    plaintext_len = 0;
+    unsigned int ret = EVP_OpenInit(ctx, cipher, encrypted_key, encrypted_key_len, iv, prvkey);
+    if(ret == 0) { cout<<"Peppuccio"<<endl; return false; }
+    EVP_OpenUpdate(ctx, plaintext + plaintext_len, &outlen, ciphertext, ciphertext_len);
+    plaintext_len += outlen;
+    ret = EVP_OpenFinal(ctx, plaintext + plaintext_len, &outlen);
+    if(ret == 0) { cout<<"Peppino Cola"<<endl; return false; }
+    plaintext_len += outlen;
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+
+void Utility::printMessage(string print_message, unsigned char* buf, unsigned int len){
+    cout<<print_message<<endl;
+    for (unsigned int i=0; i < len; i++){
+        printf("%02hhx", buf[i]);
+    }
+    cout<<endl<<"Printed message length: "<<len<<endl;
 }

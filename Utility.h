@@ -30,6 +30,24 @@ class Utility {
         static void signMessage(EVP_PKEY* privkey, char* msg, unsigned int len, unsigned char** signature, unsigned int* signature_len);
 
         static bool isNumeric(string str); //check is a string is composed only by digit characters
+
+        static EVP_PKEY* generateTprivK(string username);
+
+        static EVP_PKEY* generateTpubK(string username);
+
+        static void removeTprivK(string username);
+
+        static void removeTpubK(string username);
+
+        static void printPublicKey(EVP_PKEY* key);
+
+        static bool compareR(const unsigned char* R1, const unsigned char* R2);
+
+        static bool encryptMessage(int plaintext_len, EVP_PKEY* pubkey, unsigned char* plaintext, unsigned char* &ciphertext, unsigned char* &encrypted_key, unsigned char* &iv, int& encrypted_key_len, int& outlen, unsigned int& cipherlen);
+
+        static bool decryptMessage(unsigned char* &plaintext, unsigned char* ciphertext, unsigned int ciphertext_len, unsigned char* iv, unsigned char* encrypted_key, unsigned int encrypted_key_len, EVP_PKEY* prvkey, unsigned int& plaintext_len);
+
+        static void printMessage(string print_message, unsigned char* buf, unsigned int len);
 };
 
 #endif
