@@ -8,45 +8,83 @@ EVP_PKEY* SecureChatServer::server_prvkey = NULL;
 X509* SecureChatServer::server_certificate = NULL;
 map<string, User>* SecureChatServer::users = NULL;
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function setups the server.                           *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 SecureChatServer::SecureChatServer(const char *addr, unsigned short int port, const char *user_filename) {
 
-    //Read the server private key
+    /* ---------------------------------------------------------- *\
+    |* Read the server private key                                *|
+    \* ---------------------------------------------------------- */
     server_prvkey = getPrvKey();
 
-    //Read the server certificate
+    /* ---------------------------------------------------------- *\
+    |* Read the server certificate                                *|
+    \* ---------------------------------------------------------- */
     server_certificate = getCertificate();
 
-    //Set the server address and the server port in the class instance
+    /* ---------------------------------------------------------- *\
+    |* Set the server address and the server port in the          *|
+    |* class instance                                             *|
+    \* ---------------------------------------------------------- */
     strncpy(this->address, addr, MAX_ADDRESS_SIZE-1);
     this->address[MAX_ADDRESS_SIZE-1] = '\0';
     this->port = port;
 
-    //Set the user list in the class instance
+    /* ---------------------------------------------------------- *\
+    |* Set the user list in the class instance                    *|
+    \* ---------------------------------------------------------- */
     this->users = loadUsers(user_filename);
 
-    //Setup the server socket
+    /* ---------------------------------------------------------- *\
+    |* Setup the server socket                                    *|
+    \* ---------------------------------------------------------- */
     setupSocket();
 
-    //Let the server listen to client requests
+    /* ---------------------------------------------------------- *\
+    |* Let the server listen to client requests                   *|
+    \* ---------------------------------------------------------- */
     listenRequests();
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function gets the server private key.                 *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 EVP_PKEY* SecureChatServer::getPrvKey() {
     server_prvkey = Utility::readPrvKey("./server/server_key.pem", NULL);
     return server_prvkey;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function gets the server private key.                 *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 EVP_PKEY* SecureChatServer::getUserKey(string username) {
     string path = "./server/" + username + "_pubkey.pem";
     EVP_PKEY* username_pubkey = Utility::readPubKey(path.c_str(), NULL);
     return username_pubkey;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function gets the server certificate.                 *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 X509* SecureChatServer::getCertificate(){
     server_certificate = Utility::readCertificate("./server/server_cert.pem");
     return server_certificate;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function setups the server socket.                    *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::setupSocket(){
     this->listening_socket = socket(AF_INET, SOCK_STREAM, 0);
 	memset(&this->server_addr, 0, sizeof(this->server_addr));
@@ -68,6 +106,12 @@ void SecureChatServer::setupSocket(){
 	cout<<"Thread "<<gettid()<<": Socket associated through bind."<<endl;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function contains the role of the main thread that    *|
+|* listens to requests and starts new threads to handle them. *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::listenRequests(){
     pid_t pid;
     int new_socket;
@@ -77,8 +121,9 @@ void SecureChatServer::listenRequests(){
     addrlen = sizeof(client_addr);
 
     while(1){
-        
-        //Waiting for a client request
+        /* ---------------------------------------------------------- *\
+        |* Waiting for a client request                               *|
+        \* ---------------------------------------------------------- */
         new_socket = accept(this->listening_socket, (struct sockaddr*)&client_addr, &addrlen);
         if (new_socket < 0){
             cerr<<"Thread "<<gettid()<<"Error in the accept"<<endl;
@@ -86,12 +131,20 @@ void SecureChatServer::listenRequests(){
         }
         cout<<"Thread "<<gettid()<<": Request received by a client with address "<<inet_ntoa(client_addr.sin_addr)<<" and port "<<ntohs(client_addr.sin_port)<<endl;
 
-        //Create a new thread to handle the new connection
+        /* ---------------------------------------------------------- *\
+        |* Create a new thread to handle the new connection           *|
+        \* ---------------------------------------------------------- */
         thread handler (&SecureChatServer::handleConnection, this, new_socket, client_addr);
         handler.detach();
     }
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function handles a single client until he/she is      *|
+|* linked to another client.                                  *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_address){
 
     /* ---------------------------------------------------------- *\
@@ -141,61 +194,20 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         \* ---------------------------------------------------------- */
         wait(receiver_username);
 
-        //pthread_mutex_lock(&(*users).at(username).user_mutex);
-        if((*users).at(receiver_username).responses.at(username) != 1) {
-            pthread_exit(NULL);
-        }
+        /* ---------------------------------------------------------- *\
+        |* Check if the request has been accepted                     *|
+        \* ---------------------------------------------------------- */
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
+        if((*users).at(receiver_username).responses.at(username) != 1) { pthread_exit(NULL); }
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
 
+        /* ---------------------------------------------------------- *\
+        |* Starts a new thread to handle the chat                     *|
+        \* ---------------------------------------------------------- */
         int receiver_socket = (*users).at(receiver_username).socket;
         thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
         handler.detach();
 
-        // /* ---------------------------------------------------------- *\
-        // |* Server sends receiver public key to the sender user        *|
-        // \* ---------------------------------------------------------- */
-        // sendUserPubKey(receiver_username, data_socket);
-        // //pthread_mutex_unlock(&(*users).at(username).user_mutex);
-
-
-        // /* ---------------------------------------------------------- *\
-        // |* *************************   M1   ************************* *|
-        // \* ---------------------------------------------------------- */
-
-
-        // /* ---------------------------------------------------------- *\
-        // |* Server receives the message M1 from the sender user        *|
-        // \* ---------------------------------------------------------- */
-        // char m1[M1_SIZE];
-        // unsigned int len;
-        // receive(data_socket, username, len, m1, M1_SIZE);
-        // /* ---------------------------------------------------------- *\
-        // |* Server forwards the message M1 to the receiver user        *|
-        // \* ---------------------------------------------------------- */
-        // Utility::printMessage("M1 da forwardare:", (unsigned char*)m1, len);
-        // wait(receiver_username);
-        // forward(receiver_username, m1, len);
-        // cout<<"message R forwaded to "<<receiver_username<<endl;
-        // notify(username);
-
-
-        // /* ---------------------------------------------------------- *\
-        // |* *************************   M3   ************************* *|
-        // \* ---------------------------------------------------------- */
-
-
-        // /* ---------------------------------------------------------- *\
-        // |* Server receives the message M3 from the sender user        *|
-        // \* ---------------------------------------------------------- */
-        // wait(receiver_username);
-        // char m3[M3_SIZE];
-        // receive(data_socket, username, len, m3, M3_SIZE);
-        // cout<<"message m3 received from "<<username<<endl;
-        // /* ---------------------------------------------------------- *\
-        // |* Server forwards the message M3 to the receiver user        *|
-        // \* ---------------------------------------------------------- */
-        // forward(receiver_username, m3, len);
-        // cout<<"message m3 forwaded to "<<receiver_username<<endl;
-        // notify(username);
     }
     /* ---------------------------------------------------------- *\
     |* Receiver case                                              *|
@@ -217,55 +229,23 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         |* Frees the other thread that is handling the sender         *|
         \* ---------------------------------------------------------- */
         notify(username);
-
-        /* ---------------------------------------------------------- *\
-        |* Wait on the condition variable of the sender               *|
-        \* ---------------------------------------------------------- */
-        // unique_lock<mutex> lck((*users).at(sender_username).mtx);
-
-        // while(!(*users).at(sender_username).ready)
-        //     (*users).at(sender_username).cv.wait(lck);
-        
-        // if (response == 1){
-
-        //     /* ---------------------------------------------------------- *\
-        //     |* Server sends sender public key to the receiver user        *|
-        //     \* ---------------------------------------------------------- */
-        //     sendUserPubKey(sender_username, data_socket);
-        //     notify(username);
-
-
-        //     /* ---------------------------------------------------------- *\
-        //     |* *************************   M2   ************************* *|
-        //     \* ---------------------------------------------------------- */
-
-
-        //     /* ---------------------------------------------------------- *\
-        //     |* Server receives the message M2 from the receiver user      *|
-        //     \* ---------------------------------------------------------- */
-        //     char m2[M2_SIZE];
-        //     unsigned int len;
-        //     receive(data_socket, username, len, m2, M2_SIZE);
-        //     cout<<"message m2 received from "<<username<<endl;
-        //     /* ---------------------------------------------------------- *\
-        //     |* Server forwards the message M2 to the sender user          *|
-        //     \* ---------------------------------------------------------- */
-        //     wait(sender_username);
-        //     forward(sender_username, m2, len);
-        //     cout<<"message m2 forwaded to "<<sender_username<<endl;
-        //     notify(username);
-        // }
     }
 
     pthread_exit(NULL);
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function handles a chat betweem two clients.          *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string sender, string receiver){
      /* ---------------------------------------------------------- *\
     |* Server sends receiver public key to the sender user        *|
     \* ---------------------------------------------------------- */
     sendUserPubKey(receiver, sender_socket);
     sendUserPubKey(sender, receiver_socket);
+
 
     /* ---------------------------------------------------------- *\
     |* *************************   M1   ************************* *|
@@ -278,6 +258,7 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     char m1[M1_SIZE];
     unsigned int len;
     receive(sender_socket, sender, len, m1, M1_SIZE);
+
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M1 to the receiver user        *|
     \* ---------------------------------------------------------- */
@@ -297,6 +278,7 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     char m2[M2_SIZE];
     receive(receiver_socket, receiver, len, m2, M2_SIZE);
     cout<<"message m2 received from "<<receiver<<endl;
+
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M2 to the sender user          *|
     \* ---------------------------------------------------------- */
@@ -315,6 +297,7 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     char m3[M3_SIZE];
     receive(sender_socket, sender, len, m3, M3_SIZE);
     cout<<"message m3 received from "<<sender<<endl;
+
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M3 to the receiver user        *|
     \* ---------------------------------------------------------- */
@@ -322,14 +305,25 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     cout<<"message m3 forwaded to "<<receiver<<endl;
 }
 
-void SecureChatServer::sendCertificate(int process_socket){
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends the certificate to a user.             *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatServer::sendCertificate(int data_socket){
 
+    /* ---------------------------------------------------------- *\
+    |* Serialize the certificate                                  *|
+    \* ---------------------------------------------------------- */
     BIO* mbio = BIO_new(BIO_s_mem());
     PEM_write_bio_X509(mbio, server_certificate);
     char* certificate_buf = NULL;
     long certificate_size = BIO_get_mem_data(mbio, &certificate_buf);
 	
-	if (send(process_socket, certificate_buf, certificate_size, 0) < 0){
+    /* ---------------------------------------------------------- *\
+    |* Send the certificate                                       *|
+    \* ---------------------------------------------------------- */
+	if (send(data_socket, certificate_buf, certificate_size, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the certificate."<<endl;
 		pthread_exit(NULL);
 	}
@@ -338,6 +332,12 @@ void SecureChatServer::sendCertificate(int process_socket){
 	return;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends the public key of a user to            *|
+|* another user.                                              *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::sendUserPubKey(string username, int data_socket){
 
     char buf[PUBKEY_MSG_SIZE];
@@ -346,67 +346,75 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
 
     EVP_PKEY* pubkey = getUserKey(username);
 
+    /* ---------------------------------------------------------- *\
+    |* Serialize the public key                                   *|
+    \* ---------------------------------------------------------- */
     BIO* mbio = BIO_new(BIO_s_mem());
     PEM_write_bio_PUBKEY(mbio, pubkey);
 
     long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
-    if (1 + pubkey_size < 1){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
+    if (1 + pubkey_size < 1){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     unsigned int len = 1 + pubkey_size;
-    if (1 + pubkey_size > PUBKEY_MSG_SIZE){
-        cerr<<"Access out-of-bound"<<endl;
-        pthread_exit(NULL);
-    }
+    if (1 + pubkey_size > PUBKEY_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
     memcpy(buf+1, pubkey_buf, pubkey_size);
     BIO_free(mbio);
 
+    /* ---------------------------------------------------------- *\
+    |* Sign the message                                           *|
+    \* ---------------------------------------------------------- */
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
 
-    if (len + signature_len < len){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
-    if (len + signature_len > PUBKEY_MSG_SIZE){
-        cerr<<"Access out-of-bound"<<endl;
-        pthread_exit(NULL);
-    }
-    if (len + (unsigned long)buf < len){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
+    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    if (len + signature_len > PUBKEY_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
+    if (len + (unsigned long)buf < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     unsigned int msg_len = len + signature_len;
     memcpy(buf+len, signature, signature_len);
 
     Utility::printMessage("Message containing the user public key:", (unsigned char*)buf, msg_len);
 	
+    /* ---------------------------------------------------------- *\
+    |* Send the message                                           *|
+    \* ---------------------------------------------------------- */
 	if (send(data_socket, buf, msg_len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the public key to "<<username<<endl;
 		pthread_exit(NULL);
 	}
-    
 	return;
 }
 
-string SecureChatServer::receiveAuthentication(int process_socket, unsigned int &status){
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function receives the authentitcation message         *|
+|* from the client and verifies it.                           *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &status){
+    /* ---------------------------------------------------------- *\
+    |* Receive the authentication message                         *|
+    \* ---------------------------------------------------------- */
     char* authentication_buf = (char*)malloc(AUTHENTICATION_MAX_SIZE);
     if (!authentication_buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
 
-    //IMPORTANTE: socket non può essere utilizzato da altri thread perchè l'istanza della classe User non è stata creata
-    unsigned int authentication_len = recv(process_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
+    unsigned int authentication_len = recv(data_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
     if (authentication_len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
         exit(1);
     }
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
-    checkLogout(process_socket, authentication_buf, authentication_len, 0, "");
+    /* ---------------------------------------------------------- *\
+    |* Check if the message is a logout message                   *|
+    \* ---------------------------------------------------------- */
+    checkLogout(data_socket, authentication_buf, authentication_len, 0, "");
+
+    /* ---------------------------------------------------------- *\
+    |* Extract the fields from the message                        *|
+    \* ---------------------------------------------------------- */
     status = authentication_buf[0];
     if (status != 0 && status != 1){
         cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
@@ -417,38 +425,18 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
         cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
     }
     string username;
-    if (2 + (unsigned long)authentication_buf < 2){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
+    if (2 + (unsigned long)authentication_buf < 2){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     username.append(authentication_buf+2, username_len);
 
-    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
-    if (!signature){
-        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        exit(1);
-    }
-    if (username_len + 2 < username_len){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
+    /* ---------------------------------------------------------- *\
+    |* Verify the authenticity of the message                     *|
+    \* ---------------------------------------------------------- */
+    if (username_len + 2 < username_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     unsigned int clear_message_len = 2 + username_len;
-    if (authentication_buf + clear_message_len < authentication_buf){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
-
-    memcpy(signature, authentication_buf+clear_message_len, SIGNATURE_SIZE);
-
-    char* clear_message = (char*)malloc(clear_message_len);
-    if (!clear_message){
-        cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
-        pthread_exit(NULL);
-    }
-    memcpy(clear_message, authentication_buf, clear_message_len);
+    if ((unsigned long)authentication_buf + clear_message_len < clear_message_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     EVP_PKEY* pubkey = getUserKey(username);
 
-    if(Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
+    if(Utility::verifyMessage(pubkey, authentication_buf, clear_message_len, (unsigned char*)((unsigned long)authentication_buf+clear_message_len), SIGNATURE_SIZE) != 1) { 
         cerr<<"Thread "<<gettid()<<": Authentication error while receiving the authentication"<<endl;
         pthread_exit(NULL);
     }
@@ -457,6 +445,11 @@ string SecureChatServer::receiveAuthentication(int process_socket, unsigned int 
     return username;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function changes the status of a user.                *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::changeUserStatus(string username, unsigned int status, int user_socket){
     cout<<"changeUserStatus(): "<<username.length()<<endl;
     pthread_mutex_lock(&(*users).at(username).user_mutex);
@@ -465,12 +458,22 @@ void SecureChatServer::changeUserStatus(string username, unsigned int status, in
     pthread_mutex_unlock(&(*users).at(username).user_mutex);
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function prints the list of users.                    *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::printUserList(){
     for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
         it->second.printUser();
     }
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function retrieves the list of online users.          *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 vector<User> SecureChatServer::getOnlineUsers(){
     vector<User> v;
     for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
@@ -481,65 +484,55 @@ vector<User> SecureChatServer::getOnlineUsers(){
     return v;
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends the list of available users.           *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     char buf[AVAILABLE_USER_MAX_SIZE];
     buf[0] = 2;
+
+    /* ---------------------------------------------------------- *\
+    |* Retrive the list of online users.                          *|
+    \* ---------------------------------------------------------- */
     vector<User> available = getOnlineUsers();
-    if (available.size() > MAX_AVAILABLE_USER_MESSAGE){
-        buf[1] = MAX_AVAILABLE_USER_MESSAGE;
-    }
-    else{
-        buf[1] = available.size();
-    }
+    if (available.size() > MAX_AVAILABLE_USER_MESSAGE){ buf[1] = MAX_AVAILABLE_USER_MESSAGE; }
+    else{ buf[1] = available.size(); }
     unsigned int len = 2;
-    // |2|2|5|alice|3|bob| -> 14
+    /* ---------------------------------------------------------- *\
+    |* Format: type=2|num_users|len1|user1|len2|user2|...         *|
+    \* ---------------------------------------------------------- */
     for (unsigned int i = 0; i < available.size(); i++){
-        if (available[i].username.compare(username) != 0){ //TODO: Ricordiamoci di riattivare questo controllo
-            if (len >= AVAILABLE_USER_MAX_SIZE){
-                cerr<<"Access our-of-bound"<<endl;
-                pthread_exit(NULL);
-            }
+        if (available[i].username.compare(username) != 0){
+            if (len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"Access our-of-bound"<<endl; pthread_exit(NULL); }
             buf[len] = available[i].username.length();
-            if (len + 1 == 0){
-                cerr<<"Wrap around"<<endl;
-                pthread_exit(NULL);
-            }
+            if (len + 1 == 0){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
             len++;
-            if (len + (unsigned long)buf < len){
-                cerr<<"Wrap around"<<endl;
-                pthread_exit(NULL);
-            }
-            if (len + available[i].username.length() < len){
-                cerr<<"Wrap around"<<endl;
-                pthread_exit(NULL);
-            }
-            if (len + available[i].username.length() >= AVAILABLE_USER_MAX_SIZE){
-                cerr<<"Access out-of-bound"<<endl;
-                pthread_exit(NULL);
-            }
-            memcpy(buf+len, available[i].username.c_str(), available[i].username.length()); //TODO: controllare se c'e' il fine stringa
+            if (len + (unsigned long)buf < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+            if (len + available[i].username.length() < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+            if (len + available[i].username.length() >= AVAILABLE_USER_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
+            memcpy(buf+len, available[i].username.c_str(), available[i].username.length());
             len += available[i].username.length();
         }
     }
 
+    /* ---------------------------------------------------------- *\
+    |* Sign the message.                                          *|
+    \* ---------------------------------------------------------- */
     unsigned char* signature;
     unsigned int signature_len;
     Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
 
-    if (len + signature_len < len){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
-    if (len + signature_len >= AVAILABLE_USER_MAX_SIZE){
-        cerr<<"Access out-of-bound"<<endl;
-        pthread_exit(NULL);
-    }
-    if (len + (unsigned long)buf < len){
-        cerr<<"Wrap around"<<endl;
-        pthread_exit(NULL);
-    }
+    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    if (len + signature_len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
+    if (len + (unsigned long)buf < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     unsigned int msg_len = len + signature_len;
     memcpy(buf+len, signature, signature_len);
+
+    /* ---------------------------------------------------------- *\
+    |* Send the message.                                          *|
+    \* ---------------------------------------------------------- */
     
     if (send(data_socket, buf, msg_len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;

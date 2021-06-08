@@ -250,6 +250,7 @@ bool Utility::encryptMessage(int plaintext_len, EVP_PKEY* pubkey, unsigned char*
     if(ret == 0) { return false; }
     ret = EVP_SealUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
     if(ret == 0) { return false; }
+    if (cipherlen + outlen < cipherlen){ cerr<<"Wrap around"<<endl; exit(1); }
     cipherlen += outlen;
     ret = EVP_SealFinal(ctx, ciphertext + cipherlen, &outlen);
     if(ret == 0) { return false; }
@@ -268,6 +269,7 @@ bool Utility::decryptMessage(unsigned char* &plaintext, unsigned char *ciphertex
     unsigned int ret = EVP_OpenInit(ctx, cipher, encrypted_key, encrypted_key_len, iv, prvkey);
     if(ret == 0) { cout<<"Peppuccio"<<endl; return false; }
     EVP_OpenUpdate(ctx, plaintext + plaintext_len, &outlen, ciphertext, ciphertext_len);
+    if (plaintext_len + outlen < plaintext_len){ cerr<<"Wrap around"<<endl; exit(1); }
     plaintext_len += outlen;
     ret = EVP_OpenFinal(ctx, plaintext + plaintext_len, &outlen);
     if(ret == 0) { cout<<"Peppino Cola"<<endl; return false; }

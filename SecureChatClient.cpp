@@ -852,36 +852,26 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
     /* ---------------------------------------------------------- *\
     |* Sign the M3 message                                        *|
     \* ---------------------------------------------------------- */
-    if (send(this->server_socket, m3, m3_len, 0) < 0) { cerr<<"Error in the sendto of the message R"<<endl; exit(1); }
+    unsigned char* m3_signature;
+    unsigned int m3_signature_len;
+    Utility::signMessage(client_prvkey, (char*)m3, m3_len, &m3_signature, &m3_signature_len);
+    if (m3_len + (unsigned long)m3 < m3_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (m3_len + m3_signature_len < m3_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (m3_len + m3_signature_len > M3_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    memcpy(m3+m3_len, m3_signature, m3_signature_len);
+    m3_len += m3_signature_len;
+
+    /* ---------------------------------------------------------- *\
+    |* Send the M3 message                                        *|
+    \* ---------------------------------------------------------- */
+    if (send(this->server_socket, m3, m3_len, 0) < 0) { cerr<<"Error in the sendto of the message M3"<<endl; exit(1); }
 
     Utility::printMessage("Plaintext:", plaintext, plaintext_len);
 
-
-/*  Questa roba qua sarebbe (assomiglia ma non e') il punto 4 
-    unsigned char* ciphertext = (unsigned char *)malloc(sizeof(k)+16);
-
-    // Encrypt utility function
-    int ciphertext_len = encrypt(k, R_SIZE, Tpubk_received, NULL, ciphertext);
-
-    char m3[M3_SIZE];
-    m3[0] = 8;
-    if (1 + (unsigned long)m3 < 1) { cerr<<"Wrap around"<<endl; exit(1); }
-    memcpy(m3+1, ciphertext, ciphertext_len);
-    if (1 + ciphertext_len < 1) { cerr<<"Wrap around"<<endl; exit(1); }
-    len = 1 + ciphertext_len;
-
-    Utility::signMessage(client_prvkey, m3, len, &signature, &signature_len);
-    if (len + (unsigned long)m3 < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    unsigned int m3_len = len + signature_len;
-    //if (msg_len > RESPONSE_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
-    if (len + (unsigned long)m3 < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    memcpy(m3+len, signature, signature_len);
-
-    if (send(this->server_socket, m3, m3_len, 0) < 0) { cerr<<"Error in the sendto of the m3 message."<<endl; exit(1); }
-    cout<<"message m3 sent from "<<username<<" to "<<receiver_username<<endl;
-*/    
-    //TODO: delete Tpubk
+    /* ---------------------------------------------------------- *\
+    |* Delete TpubK                                               *|
+    \* ---------------------------------------------------------- */
+    EVP_PKEY_free(tpubk);
 
 }
 
@@ -1001,8 +991,17 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     \* ---------------------------------------------------------- */
     unsigned char m3[M3_SIZE];
     len = recv(this->server_socket, (void*)m3, M3_SIZE, 0);
-    if (len < 0){ cerr<<"Error in receiving message R from another user"<<endl; exit(1); }
+    if (len < 0){ cerr<<"Error in receiving message M3 from another user"<<endl; exit(1); }
     cout<<"message m3 received from "<<sender_username<<endl;
+
+    /* ---------------------------------------------------------- *\
+    |* Verify message M3 authenticity                             *|
+    \* ---------------------------------------------------------- */
+    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; exit(1); }
+    clear_message_len = len - SIGNATURE_SIZE;
+    if (Utility::verifyMessage(peer_key, (char*)m3, clear_message_len, (unsigned char*)((unsigned long)m3+clear_message_len), SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error while receiving message M3"<<endl; exit(1);
+    }
 
     /* ---------------------------------------------------------- *\
     |* Initialize variables for decrypting                        *|
@@ -1010,7 +1009,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     const EVP_CIPHER* cipher = EVP_aes_256_cbc();
     unsigned int iv_len = EVP_CIPHER_iv_length(cipher);
     unsigned int encrypted_key_len = EVP_PKEY_size(tprivk);
-    unsigned int cphr_size = len - encrypted_key_len - iv_len;
+    unsigned int cphr_size = clear_message_len - encrypted_key_len - iv_len;
     unsigned int plaintext_len;
     cout<<"Cphr size: "<<cphr_size<<endl;
     unsigned char* encrypted_key = (unsigned char*)malloc(encrypted_key_len);
@@ -1048,4 +1047,10 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     if(plaintext[0] != 6){ cerr<<"Received a message type different from 'key esablishment' type"<<endl; exit(1); }
     unsigned char K[K_SIZE];
     memcpy(K, plaintext+1, K_SIZE);
+
+    /* ---------------------------------------------------------- *\
+    |* Delete TpubK e TprivK                                      *|
+    \* ---------------------------------------------------------- */
+    EVP_PKEY_free(tprivk);
+    EVP_PKEY_free(tpubk);
 }
