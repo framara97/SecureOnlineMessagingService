@@ -329,14 +329,12 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
             char msg[GENERAL_MSG_SIZE];
             unsigned int len;
             receive(sender_socket, sender, len, msg, GENERAL_MSG_SIZE);
-            Utility::printChatMessage(sender, msg, len);
             forward(receiver, msg, len);
         }
         if (FD_ISSET(receiver_socket, &copy)){
             char msg[GENERAL_MSG_SIZE];
             unsigned int len;
             receive(receiver_socket, receiver, len, msg, GENERAL_MSG_SIZE);
-            Utility::printChatMessage(receiver, msg, len);
             forward(sender, msg, len);
         }
     }
@@ -856,7 +854,7 @@ void SecureChatServer::receive(int data_socket, string username, unsigned int &l
     }
 
     len = recv(data_socket, (void*)buf, max_size, 0);
-    if (len < 0){
+    if (len <= 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl;
         pthread_exit(NULL);
     }
@@ -870,6 +868,7 @@ void SecureChatServer::forward(string username, char* msg, unsigned int len){
     }
 }
 
+//to wait the Response message of the receiver before checking the response value in the thread of the sender
 void SecureChatServer::wait(string username){
     unique_lock<mutex> lck((*users).at(username).mtx);
     while(!(*users).at(username).ready)
@@ -879,6 +878,7 @@ void SecureChatServer::wait(string username){
     pthread_mutex_unlock(&(*users).at(username).user_mutex);
 }
 
+//to notify that the Response message has been received before checking the response value in the thread of the sender
 void SecureChatServer::notify(string username){
     pthread_mutex_lock(&(*users).at(username).user_mutex);
     (*users).at(username).ready = 1;

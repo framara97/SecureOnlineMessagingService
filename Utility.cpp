@@ -282,3 +282,37 @@ void Utility::printChatMessage(string print_message, char* buf, unsigned int len
     buf[len] = '\0';
     cout<<print_message<<": "<<buf<<endl;
 }
+
+bool Utility::encryptSessionMessage(int plaintext_len, unsigned char* key, unsigned char* plaintext, unsigned char* &ciphertext, int& outlen, unsigned int& cipherlen){
+    ciphertext = (unsigned char*)malloc(plaintext_len + 16);
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    cipherlen = 0;
+    int ret = EVP_EncryptInit(ctx, EVP_aes_128_cbc(), key, NULL);
+    if(ret == 0) { return false; }
+    ret = EVP_EncryptUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
+    if(ret == 0) { return false; }
+    if (cipherlen + outlen < cipherlen){ cerr<<"Wrap around"<<endl; exit(1); }
+    cipherlen += outlen;
+    ret = EVP_EncryptFinal(ctx, ciphertext + cipherlen, &outlen);
+    if(ret == 0) { return false; }
+    cipherlen += outlen;
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+
+bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *ciphertext, unsigned int ciphertext_len, unsigned char* key, unsigned int& plaintext_len){
+    const EVP_CIPHER* cipher = EVP_aes_128_cbc();
+    int outlen;
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    plaintext_len = 0;
+    unsigned int ret = EVP_DecryptInit(ctx, cipher, key, NULL);
+    if(ret == 0) { return false; }
+    EVP_DecryptUpdate(ctx, plaintext + plaintext_len, &outlen, ciphertext, ciphertext_len);
+    if (plaintext_len + outlen < plaintext_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    plaintext_len += outlen;
+    ret = EVP_DecryptFinal(ctx, plaintext + plaintext_len, &outlen);
+    if(ret == 0) { return false; }
+    plaintext_len += outlen;
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}

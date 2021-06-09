@@ -869,7 +869,7 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
     \* ---------------------------------------------------------- */
     EVP_PKEY_free(tpubk);
 
-    chat(receiver_username);
+    chat(receiver_username, K, peer_key);
 
 }
 
@@ -1038,7 +1038,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     EVP_PKEY_free(tprivk);
     EVP_PKEY_free(tpubk);
 
-    chat(sender_username);
+    chat(sender_username, K, peer_key);
 }
 
 /* ---------------------------------------------------------- *\
@@ -1046,7 +1046,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
 |* This function handles the chat between two users.          *|
 |*                                                            *|
 \* ---------------------------------------------------------- */
-void SecureChatClient::chat(string other_username){
+void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* peer_key){
     cout<<"Starting chat with "<<other_username<<endl;
 
     /* ---------------------------------------------------------- *\
@@ -1058,6 +1058,8 @@ void SecureChatClient::chat(string other_username){
 
     FD_SET(this->server_socket, &master);
     FD_SET(STDIN_FILENO, &master);
+    unsigned int my_nonce = 0;
+    unsigned int other_nonce = 0;
 
     while(true){
         copy = master;
@@ -1069,14 +1071,95 @@ void SecureChatClient::chat(string other_username){
             unsigned int len = recv(this->server_socket, (void*)msg, GENERAL_MSG_SIZE, 0);
             if (len == 0){ exit(0); }
             if (len < 0){ cerr<<"Error in receiving a message from another user"<<endl; exit(1); }
-            Utility::printChatMessage(other_username, msg, len);
+            //Utility::printMessage("Received message:", (unsigned char*)msg, len);
+
+            /* ---------------------------------------------------------- *\
+            |* Verify message authenticity                                *|
+            \* ---------------------------------------------------------- */
+            if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; exit(1); }
+            unsigned int clear_message_len = len - SIGNATURE_SIZE;
+            if ((unsigned long)msg+clear_message_len < clear_message_len){ cerr<<"Wrap around"<<endl; exit(1); }
+            if (Utility::verifyMessage(peer_key, (char*)msg, clear_message_len, (unsigned char*)((unsigned long)msg+clear_message_len), SIGNATURE_SIZE) != 1) { 
+                cerr<<"Authentication error while receiving message"<<endl; exit(1);
+            }
+
+            /* ---------------------------------------------------------- *\
+            |* Initialize variables for decrypting                        *|
+            \* ---------------------------------------------------------- */
+            const EVP_CIPHER* cipher = EVP_aes_128_cbc();
+            unsigned int cphr_size = clear_message_len;
+            unsigned int plaintext_len;
+            unsigned char* ciphertext = (unsigned char*)malloc(cphr_size);
+            unsigned char* plaintext = (unsigned char*)malloc(cphr_size);
+            if(!ciphertext || !plaintext) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); } 
+            memcpy(ciphertext, msg, cphr_size);
+            
+            /* ---------------------------------------------------------- *\
+            |* Decrypt the message                                        *|
+            \* ---------------------------------------------------------- */
+            //cout<<"Plaintext len: "<<plaintext_len<<endl;
+            if (!Utility::decryptSessionMessage(plaintext, ciphertext, cphr_size, K, plaintext_len)) { cerr<<"Error while decrypting"<<endl; exit(1); }
+            //Utility::printMessage("Plaintext ricevuto:", plaintext, plaintext_len);
+
+            /* ---------------------------------------------------------- *\
+            |* Verify the freshness                                       *|
+            \* ---------------------------------------------------------- */
+            unsigned int received_nonce;
+            memcpy(&received_nonce, plaintext, sizeof(received_nonce));
+            // cout<<"Other nonce: "<<other_nonce<<endl;
+            // cout<<"Received nonce: "<<received_nonce<<endl;
+            if (other_nonce != received_nonce){
+                cerr<<"Replay attack"<<endl;
+                exit(1);
+            }
+
+            Utility::printChatMessage(other_username, (char*)plaintext+sizeof(other_nonce), plaintext_len-sizeof(other_nonce));
+            other_nonce++;
         }
         if (FD_ISSET(STDIN_FILENO, &copy)){
-            char input[GENERAL_MSG_SIZE];
-            if (fgets(input, GENERAL_MSG_SIZE, stdin)==NULL){ cerr<<"Error while reading from stdin."<<endl; exit(1);}
+            char input[INPUT_SIZE];
+            unsigned char msg[GENERAL_MSG_SIZE];
+            if (fgets(input, INPUT_SIZE, stdin)==NULL){ cerr<<"Error while reading from stdin."<<endl; exit(1);}
             char* p = strchr(input, '\n');
             if (p){*p = '\0';}
-            if (send(this->server_socket, input, strlen(input), 0) < 0) { cerr<<"Error in the sendto of a message."<<endl; exit(1); }
+            if (strcmp(input, "")==0){continue;}
+
+            /* ---------------------------------------------------------- *\
+            |* Encrypt K using K                                          *|
+            \* ---------------------------------------------------------- */
+            unsigned int msg_len = 0;
+            unsigned int plaintext_len = strlen(input)+sizeof(my_nonce);
+            //cout<<"Plaintext len: "<<plaintext_len<<endl;
+            unsigned char* plaintext = (unsigned char*)malloc(plaintext_len);
+            if (!plaintext){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+            memcpy(plaintext, &my_nonce, sizeof(my_nonce));
+            if (sizeof(my_nonce) + (unsigned long)plaintext < sizeof(my_nonce)){ cerr<<"Wrap around."<<endl; exit(1); }
+            memcpy(plaintext+sizeof(my_nonce), input, strlen(input));
+            //cout<<"Plaintext len: "<<plaintext_len<<endl;
+            //Utility::printMessage("Plaintext da inviare:", plaintext, plaintext_len);
+            unsigned char *ciphertext;
+            unsigned int cipherlen;
+            int outlen;
+
+            if (!Utility::encryptSessionMessage(plaintext_len, K, plaintext, ciphertext, outlen, cipherlen)){ cerr<<"Error while encrypting"<<endl; exit(1); }
+            if (cipherlen > GENERAL_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+            memcpy(msg, ciphertext, cipherlen);
+            msg_len = cipherlen;
+
+            /* ---------------------------------------------------------- *\
+            |* Sign the message                                           *|
+            \* ---------------------------------------------------------- */
+            unsigned char* signature;
+            unsigned int signature_len;
+            Utility::signMessage(client_prvkey, (char*)msg, msg_len, &signature, &signature_len);
+            if (msg_len + (unsigned long)msg < msg_len) { cerr<<"Wrap around."<<endl; exit(1); }
+            memcpy(msg+msg_len, signature, signature_len);
+            if (msg_len + signature_len < msg_len) { cerr<<"Wrap around."<<endl; exit(1); }
+            msg_len += signature_len;
+            
+            if (send(this->server_socket, msg, msg_len, 0) < 0) { cerr<<"Error in the sendto of a message."<<endl; exit(1); }
+            //Utility::printMessage("Sent message:", (unsigned char*)msg, msg_len);
+            my_nonce++;
         }
     }
 }

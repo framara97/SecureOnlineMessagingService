@@ -50,6 +50,10 @@ class Utility {
         static void printMessage(string print_message, unsigned char* buf, unsigned int len);
 
         static void printChatMessage(string print_message, char* buf, unsigned int len);
+
+        static bool encryptSessionMessage(int plaintext_len, unsigned char* key, unsigned char* plaintext, unsigned char* &ciphertext, int& outlen, unsigned int& cipherlen);
+
+        static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *ciphertext, unsigned int ciphertext_len, unsigned char* key, unsigned int& plaintext_len);
 };
 
 #endif

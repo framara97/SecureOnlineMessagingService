@@ -32,7 +32,7 @@ struct User {
 
     //This variable is used to communicate between the thread of the sender and the thread of the receiver during the protocol
     condition_variable cv;
-    bool ready;
+    bool ready; //to wait the Response message of the receiver before checking the response value in the thread of the sender
     mutex mtx;
     map<string, int> responses;
 
