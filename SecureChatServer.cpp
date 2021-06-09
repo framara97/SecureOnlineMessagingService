@@ -416,6 +416,7 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
 		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the public key to "<<username<<endl;
 		pthread_exit(NULL);
 	}
+    Utility::printMessage(("Pubkey di " + username).c_str(), (unsigned char*)buf, msg_len);
 	return;
 }
 

@@ -225,6 +225,8 @@ EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
     }
     memcpy(clear_message, pubkey_buf, clear_message_len);
 
+    Utility::printMessage("Pubkey:", (unsigned char*)pubkey_buf, len);
+
     if(Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
         cerr<<"Authentication error in the receiveUserPubKey"<<endl;
         exit(1);
@@ -766,6 +768,7 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
     if(m2_len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; exit(1); }
     unsigned int clear_message_len = m2_len - SIGNATURE_SIZE;
     if ((unsigned long)m2 + clear_message_len < (unsigned long)m2) { cerr<<"Wrap around"<<endl; exit(1); }
+    Utility::printMessage("Message M2:", (unsigned char*)m2, m2_len);
     if(Utility::verifyMessage(peer_key, m2, clear_message_len, (unsigned char*)((unsigned long)m2+clear_message_len), SIGNATURE_SIZE) != 1) { 
         cerr<<"Authentication error while receiving message m2"<<endl; exit(1);
     }
