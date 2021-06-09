@@ -48,6 +48,8 @@ class Utility {
         static bool decryptMessage(unsigned char* &plaintext, unsigned char* ciphertext, unsigned int ciphertext_len, unsigned char* iv, unsigned char* encrypted_key, unsigned int encrypted_key_len, EVP_PKEY* prvkey, unsigned int& plaintext_len);
 
         static void printMessage(string print_message, unsigned char* buf, unsigned int len);
+
+        static void printChatMessage(string print_message, char* buf, unsigned int len);
 };
 
 #endif

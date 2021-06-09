@@ -90,6 +90,8 @@ class SecureChatClient{
         void senderKeyEstablishment(string receiver_username, EVP_PKEY* peer_key);
         void receiverKeyEstablishment(string sender_username, EVP_PKEY* peer_key);
 
+        void chat(string other_username);
+
 
     public:
         //Constructor that gets the username, the server address and the server port

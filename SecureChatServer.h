@@ -20,9 +20,9 @@ class SecureChatServer{
         static X509* server_certificate;
 
         //Port and listening IP address, in dotted notation (e.g. 192.168.1.1)
+        int listening_socket;
         char address[MAX_ADDRESS_SIZE];
         unsigned short int port;
-        int listening_socket;
         struct sockaddr_in server_addr;
 
         //Get the server private key
@@ -33,9 +33,6 @@ class SecureChatServer{
 
         //Get the server certificate
         static X509* getCertificate();
-
-        //List of users
-        static map<string, User> *users;
 
         //Setup the socket
         void setupSocket();
@@ -92,4 +89,10 @@ class SecureChatServer{
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);
+
+        //Destructor to close the listening socket
+        ~SecureChatServer();
+
+        //List of users
+        static map<string, User> *users;
 };
