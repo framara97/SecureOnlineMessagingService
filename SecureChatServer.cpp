@@ -202,6 +202,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         /* ---------------------------------------------------------- *\
         |* Server forwards the RTT to the final receiver              *|
         \* ---------------------------------------------------------- */
+        changeUserStatus(receiver_username, 0, 0);
         forwardRTT(receiver_username, username);
 
         /* ---------------------------------------------------------- *\
@@ -485,11 +486,13 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::changeUserStatus(string username, unsigned int status, int user_socket){
-    cout<<"changeUserStatus(): "<<username.length()<<endl;
+    cout<<"changeUserStatus(): "<<username<<", "<<status<<endl;
     pthread_mutex_lock(&(*users).at(username).user_mutex);
     (*users).at(username).status = status;
-    (*users).at(username).socket = user_socket;
+    if (user_socket != 0)
+        (*users).at(username).socket = user_socket;
     pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    cout<<"Change user status finita"<<endl;
 }
 
 /* ---------------------------------------------------------- *\
@@ -511,9 +514,11 @@ void SecureChatServer::printUserList(){
 vector<User> SecureChatServer::getOnlineUsers(){
     vector<User> v;
     for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
+        pthread_mutex_lock(&(it->second.user_mutex));
         if (it->second.status == 1){
             v.push_back(it->second);
         }
+        pthread_mutex_unlock(&(it->second.user_mutex));
     }
     return v;
 }
@@ -587,15 +592,12 @@ string SecureChatServer::receiveRTT(int data_socket, string username){
         pthread_exit(NULL);
     }
 
-
-    //pthread_mutex_lock(&(*users).at(username).user_mutex);
     unsigned int len = recv(data_socket, (void*)buf, RTT_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": RTT message received"<<endl;
-    //pthread_mutex_unlock(&(*users).at(username).user_mutex);
 
     checkLogout(data_socket, buf, len, 1, username);
 
@@ -634,7 +636,7 @@ void SecureChatServer::forwardRTT(string receiver_username, string sender_userna
     // 3 | sender_username_len | sender_username | digest
     char msg[RTT_MAX_SIZE];
     msg[0] = 3; //Type = 3, request to talk message
-    char sender_username_len = sender_username.length(); //receiver_username length on one byte
+    unsigned int sender_username_len = sender_username.length(); //receiver_username length on one byte
     msg[1] = sender_username_len;
     if (sender_username_len + 2 < sender_username_len){
         cerr<<"Wrap around"<<endl;
@@ -670,8 +672,9 @@ void SecureChatServer::forwardRTT(string receiver_username, string sender_userna
     }
     memcpy(msg + len, signature, signature_len);
     
-    if (send(data_socket, msg, msg_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the forward of the RTT"<<endl;
+    unsigned int ret = send(data_socket, msg, msg_len, 0);
+    if (ret < 0){
+		cerr<<"Thread "<<gettid()<<": Error in the forward of the RTT with error "<<ret<<endl;
 		pthread_exit(NULL);
 	}
 }
@@ -684,14 +687,12 @@ string SecureChatServer::receiveResponse(int data_socket, string receiver_userna
         pthread_exit(NULL);
     }
 
-    pthread_mutex_lock(&(*users).at(receiver_username).user_mutex);
     unsigned int len = recv(data_socket, (void*)buf, RESPONSE_MAX_SIZE, 0);
     if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the Response to RTT message"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Response to RTT message received"<<endl;
-    pthread_mutex_unlock(&(*users).at(receiver_username).user_mutex);
 
     checkLogout(data_socket, buf, len, 1, receiver_username);
     unsigned int message_type = buf[0];

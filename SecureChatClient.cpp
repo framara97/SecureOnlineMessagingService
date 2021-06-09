@@ -70,8 +70,6 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     }
     choice = input.c_str()[0]-'0';
 
-    cout << "choice: " << choice << endl;
-
     //Send a message to authenticate to the server
     authenticateUser(choice);
 
@@ -471,6 +469,8 @@ void SecureChatClient::sendRTT(string selected_user){
         exit(1);
     }
     memcpy(msg+len, signature, signature_len);
+
+    Utility::printMessage("RTT: ", (unsigned char*)msg, msg_len);
     
     if (send(this->server_socket, msg, msg_len, 0) < 0){
 		cerr<<"Error in the sendto of the authentication message."<<endl;
@@ -929,9 +929,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     |* (we don't send the certificate because the other peer has  *|
     |* yet the public key)                                        *|
     \* ---------------------------------------------------------- */
-    //char* m2 = (char*)malloc(M2_SIZE);
     char m2[M2_SIZE];
-    // if (!m2){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1);}
     m2[0] = 6;
 
     /* ---------------------------------------------------------- *\
@@ -1040,8 +1038,18 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     chat(sender_username);
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function handles the chat between two users.          *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
 void SecureChatClient::chat(string other_username){
     cout<<"Starting chat with "<<other_username<<endl;
+
+    /* ---------------------------------------------------------- *\
+    |* Create a fd_set structure to manage the server socket      *|
+    |* and the stdin.                                             *|
+    \* ---------------------------------------------------------- */
     fd_set master, copy;
     FD_ZERO(&master);
 
@@ -1056,7 +1064,8 @@ void SecureChatClient::chat(string other_username){
         if (FD_ISSET(this->server_socket, &copy)){
             char msg[GENERAL_MSG_SIZE];
             unsigned int len = recv(this->server_socket, (void*)msg, GENERAL_MSG_SIZE, 0);
-            if (len <= 0){ cerr<<"Error in receiving a message from another user"<<endl; exit(1); }
+            if (len == 0){ exit(0); }
+            if (len < 0){ cerr<<"Error in receiving a message from another user"<<endl; exit(1); }
             Utility::printChatMessage(other_username, msg, len);
         }
         if (FD_ISSET(STDIN_FILENO, &copy)){
