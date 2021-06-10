@@ -78,8 +78,6 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     //Send a message to authenticate to the server
     authenticateUser(choice);
 
-    //sendLogoutNonce();
-
     unsigned int response;
     EVP_PKEY* peer_key;
 
@@ -943,7 +941,6 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     |* *************************   M2   ************************* *|
     \* ---------------------------------------------------------- */
 
-
     /* ---------------------------------------------------------- *\
     |* Send M2: <R || TpubKb>B                                    *|
     |* (we don't send the certificate because the other peer has  *|
@@ -1141,7 +1138,7 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             other_nonce++;
         }
         if (FD_ISSET(STDIN_FILENO, &copy)){
-            char input[INPUT_SIZE];
+            char* input = (char*)malloc(INPUT_SIZE);
             unsigned char msg[GENERAL_MSG_SIZE];
             if (fgets(input, INPUT_SIZE, stdin)==NULL){ cerr<<"Error while reading from stdin."<<endl; exit(1);}
             char* p = strchr(input, '\n');
@@ -1151,19 +1148,17 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             |* Encrypt msg using K                                        *|
             \* ---------------------------------------------------------- */
             unsigned int msg_len = 0;
+            
             unsigned int plaintext_len = strlen(input)+sizeof(my_nonce);
-            //cout<<"Plaintext len: "<<plaintext_len<<endl;
             unsigned char* plaintext = (unsigned char*)malloc(plaintext_len);
             if (!plaintext){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
             memcpy(plaintext, &my_nonce, sizeof(my_nonce));
             if (sizeof(my_nonce) + (unsigned long)plaintext < sizeof(my_nonce)){ cerr<<"Wrap around."<<endl; exit(1); }
             memcpy(plaintext+sizeof(my_nonce), input, strlen(input));
-            //cout<<"Plaintext len: "<<plaintext_len<<endl;
-            //Utility::printMessage("Plaintext da inviare:", plaintext, plaintext_len);
+
             unsigned char *ciphertext;
             unsigned int cipherlen;
             int outlen;
-
             if (!Utility::encryptSessionMessage(plaintext_len, K, plaintext, ciphertext, outlen, cipherlen)){ cerr<<"Error while encrypting"<<endl; exit(1); }
             if (cipherlen > GENERAL_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
             memcpy(msg, ciphertext, cipherlen);

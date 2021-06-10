@@ -284,7 +284,7 @@ void Utility::printChatMessage(string print_message, char* buf, unsigned int len
 }
 
 bool Utility::encryptSessionMessage(int plaintext_len, unsigned char* key, unsigned char* plaintext, unsigned char* &ciphertext, int& outlen, unsigned int& cipherlen){
-    ciphertext = (unsigned char*)malloc(plaintext_len + 16);
+    ciphertext = (unsigned char*)malloc(plaintext_len + BLOCK_SIZE);
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     cipherlen = 0;
     int ret = EVP_EncryptInit(ctx, EVP_aes_128_cbc(), key, NULL);
