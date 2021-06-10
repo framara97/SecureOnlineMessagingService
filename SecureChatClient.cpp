@@ -604,10 +604,10 @@ void SecureChatClient::logout(unsigned int authenticated){
 \* ---------------------------------------------------------- */
 void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY* peer_key){
 
-    /* ---------------------------------------------------------- *\
+    /* ---------------------------------------------------------- *\    
     |* *************************   M1   ************************* *|
+    |* 6 | R(16) | sender_signature (256)                         *|
     \* ---------------------------------------------------------- */
-
 
     /* ---------------------------------------------------------- *\
     |* Create message R                                           *|
@@ -645,8 +645,8 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
 
     /* ---------------------------------------------------------- *\
     |* *************************   M2   ************************* *|
-    \* ---------------------------------------------------------- */
-
+    |* 6 | R(16) | tpubkey(451) | sender_signature (256)          *|
+    \* ---------------------------------------------------------- *
 
     /* ---------------------------------------------------------- *\
     |* Receiving M2 message from the receiver                     *|
@@ -703,9 +703,10 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
     BIO_free(mbio);
 
 
-    /* ---------------------------------------------------------- *\
-    |* *************************   M3   ************************* *|
-    \* ---------------------------------------------------------- */
+    /* ------------------------------------------------------------------------------------ *\
+    |* **********************************   M3   ****************************************** *|
+    |* 6 | R(16) | E(tpubk, K)(16) | IV(16) | encrypted_key(384) | sender_signature (256)   *|
+    \* ------------------------------------------------------------------------------------ */
 
 
     /* ---------------------------------------------------------- *\
@@ -958,13 +959,15 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
         copy = master;
 
         int count = select(FD_SETSIZE, &copy, NULL, NULL, NULL);
-
+        /* ---------------------------------------------------------- *\
+        |* The client receive a message from the server on the socket *|
+        \* ---------------------------------------------------------- */   
         if (FD_ISSET(this->server_socket, &copy)){
             char msg[GENERAL_MSG_SIZE];
             unsigned int len = recv(this->server_socket, (void*)msg, GENERAL_MSG_SIZE, 0);
             if (len == 0){ exit(0); }
             if (len < 0){ cerr<<"ERR: Error in receiving a message from another user"<<endl; exit(1); }
-
+            if (msg[0] != 9) { cerr<<"ERR: Message type is not corresponding to chat message."<<endl; exit(1); }
             /* ---------------------------------------------------------- *\
             |* Verify message authenticity                                *|
             \* ---------------------------------------------------------- */
@@ -979,27 +982,26 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             |* Initialize variables for decrypting                        *|
             \* ---------------------------------------------------------- */
             const EVP_CIPHER* cipher = EVP_aes_128_cbc();
-            unsigned int cphr_size = clear_message_len;
+            if (clear_message_len < 1) { cerr<<"ERR: Wrap around."<<endl; exit(1); }
+            unsigned int cphr_size = clear_message_len - 1;
             unsigned int plaintext_len;
             unsigned char* ciphertext = (unsigned char*)malloc(cphr_size);
             unsigned char* plaintext = (unsigned char*)malloc(cphr_size);
             if(!ciphertext || !plaintext) { cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); } 
-            memcpy(ciphertext, msg, cphr_size);
+            if (1 + (unsigned long)msg < 1) { cerr<<"ERR: Wrap around."<<endl; exit(1); }
+            memcpy(ciphertext, msg+1, cphr_size);
             
             /* ---------------------------------------------------------- *\
             |* Decrypt the message                                        *|
             \* ---------------------------------------------------------- */
-            //cout<<"Plaintext len: "<<plaintext_len<<endl;
+
             if (!Utility::decryptSessionMessage(plaintext, ciphertext, cphr_size, K, plaintext_len)) { cerr<<"ERR: Error while decrypting"<<endl; exit(1); }
-            //Utility::printMessage("Plaintext ricevuto:", plaintext, plaintext_len);
 
             /* ---------------------------------------------------------- *\
             |* Verify the freshness                                       *|
             \* ---------------------------------------------------------- */
             unsigned int received_nonce;
             memcpy(&received_nonce, plaintext, sizeof(received_nonce));
-            // cout<<"Other nonce: "<<other_nonce<<endl;
-            // cout<<"Received nonce: "<<received_nonce<<endl;
             if (other_nonce != received_nonce){
                 cerr<<"ERR: Replay attack"<<endl;
                 exit(1);
@@ -1016,9 +1018,13 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             }
             other_nonce++;
         }
+        /* ---------------------------------------------------------- *\
+        |* The client input a message in the stdin                    *|
+        \* ---------------------------------------------------------- */    
         if (FD_ISSET(STDIN_FILENO, &copy)){
             char* input = (char*)malloc(INPUT_SIZE);
             unsigned char msg[GENERAL_MSG_SIZE];
+            msg[0] = 9;
             if (fgets(input, INPUT_SIZE, stdin)==NULL){ cerr<<"ERR: Error while reading from stdin."<<endl; exit(1);}
             char* p = strchr(input, '\n');
             if (p){*p = '\0';}
@@ -1026,7 +1032,7 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             /* ---------------------------------------------------------- *\
             |* Encrypt msg using K                                        *|
             \* ---------------------------------------------------------- */
-            unsigned int msg_len = 0;
+            unsigned int msg_len = 1;
             
             unsigned int plaintext_len = strlen(input)+sizeof(my_nonce);
             unsigned char* plaintext = (unsigned char*)malloc(plaintext_len);
@@ -1040,8 +1046,9 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             int outlen;
             if (!Utility::encryptSessionMessage(plaintext_len, K, plaintext, ciphertext, outlen, cipherlen)){ cerr<<"ERR: Error while encrypting"<<endl; exit(1); }
             if (cipherlen > GENERAL_MSG_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
-            memcpy(msg, ciphertext, cipherlen);
-            msg_len = cipherlen;
+            if (1 + (unsigned long)msg < 1) { cerr<<"ERR: Wrap around."<<endl; exit(1); }
+            memcpy(msg+1, ciphertext, cipherlen);
+            msg_len += cipherlen;
 
             /* ---------------------------------------------------------- *\
             |* Sign the message                                           *|
