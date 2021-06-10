@@ -68,7 +68,7 @@ class SecureChatServer{
         string receiveResponse(int data_socket, string receiver_username, unsigned int &response);
 
         //Forward response to RTT
-        void forwardResponse(string sender_username, unsigned int response);
+        void forwardResponse(string sender_username, string username, unsigned int response);
 
         //Send user public key to the users that want to communicate
         void sendUserPubKey(string username, int data_socket);

@@ -219,7 +219,7 @@ void SecureChatClient::receiveCertificate(){
 
 EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
     /* ---------------------------------------------------------- *\
-    |* 5 | pubkey | signature                                     *|
+    |* 5 | pubkey(451) | signature(256)                           *|
     \* ---------------------------------------------------------- */
     unsigned char* pubkey_buf = (unsigned char*)malloc(PUBKEY_MSG_SIZE);
     if (!pubkey_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
@@ -260,6 +260,7 @@ EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
 }
 
 void SecureChatClient::verifyCertificate(){
+    const char* correct_owner_name = "/C=IT/CN=Server";
     X509_STORE* store = X509_STORE_new();
     X509_STORE_add_cert(store, ca_certificate);
     X509_STORE_add_crl(store, ca_crl);
@@ -268,7 +269,11 @@ void SecureChatClient::verifyCertificate(){
     X509_STORE_CTX* ctx = X509_STORE_CTX_new();
     X509_STORE_CTX_init(ctx, store, this->server_certificate, NULL);
     if(X509_verify_cert(ctx) != 1) {  cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1); }
-    cout<<"LOG: The certificate of the server is valid"<<endl;
+
+    X509_NAME* owner_name = X509_get_subject_name(this->server_certificate);
+    char* tmpstr = X509_NAME_oneline(owner_name, NULL, 0);
+    free(owner_name);
+    if(strcmp(tmpstr, correct_owner_name) != 0){ cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1);  }
 
     this->server_pubkey = X509_get_pubkey(this->server_certificate);
 
