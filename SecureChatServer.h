@@ -46,9 +46,6 @@ class SecureChatServer{
         //Receive authentication from user
         string receiveAuthentication(int process_socket, unsigned int &status);
 
-        //Receive logout nonce from user
-        void receiveLogoutNonce(int data_socket, string username);
-
         void handleConnection(int data_socket, sockaddr_in client_address);
 
         //Change user status
@@ -77,7 +74,7 @@ class SecureChatServer{
         void sendUserPubKey(string username, int data_socket);
 
         //Receive a logout message
-        void checkLogout(int data_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username);
+        void checkLogout(int data_socket, int other_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username, string other_username);
 
         void receive(int data_socket, string username, unsigned int &len, char* msg, const unsigned int max_size);
 

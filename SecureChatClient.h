@@ -68,9 +68,6 @@ class SecureChatClient{
         //Authenticate user
         void authenticateUser(unsigned int choice);
 
-        //Send user logout nonce to the server
-        void sendLogoutNonce();
-
         //Receive the list of available users
         string receiveAvailableUsers();
 
