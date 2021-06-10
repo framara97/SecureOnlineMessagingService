@@ -587,13 +587,12 @@ vector<User> SecureChatServer::getOnlineUsers(){
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::sendAvailableUsers(int data_socket, string username){
-    char buf[AVAILABLE_USER_MAX_SIZE];
-    buf[0] = 2;
-
     /* ---------------------------------------------------------- *\
     |* Retrive the list of online users.                          *|
     \* ---------------------------------------------------------- */
     vector<User> available = getOnlineUsers();
+    char* buf = (char*)malloc(2 + available.size()*(USERNAME_MAX_SIZE+1) + SIGNATURE_SIZE);
+    buf[0] = 2;
     if (available.size() > MAX_AVAILABLE_USER_MESSAGE){ buf[1] = MAX_AVAILABLE_USER_MESSAGE; }
     else{ buf[1] = available.size(); }
     unsigned int len = 2;
