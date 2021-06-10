@@ -14,6 +14,9 @@ class SecureChatClient{
         //Client choice
         static unsigned int choice;
 
+        //Logout nonce
+        static unsigned char logout_nonce[NONCE_SIZE];
+
         //Client private key
         static EVP_PKEY* client_prvkey;
 
@@ -64,6 +67,9 @@ class SecureChatClient{
 
         //Authenticate user
         void authenticateUser(unsigned int choice);
+
+        //Send user logout nonce to the server
+        void sendLogoutNonce();
 
         //Receive the list of available users
         string receiveAvailableUsers();

@@ -46,6 +46,9 @@ class SecureChatServer{
         //Receive authentication from user
         string receiveAuthentication(int process_socket, unsigned int &status);
 
+        //Receive logout nonce from user
+        void receiveLogoutNonce(int data_socket, string username);
+
         void handleConnection(int data_socket, sockaddr_in client_address);
 
         //Change user status

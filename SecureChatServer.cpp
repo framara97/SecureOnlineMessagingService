@@ -173,6 +173,9 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     \* ---------------------------------------------------------- */
     unsigned int status;
     string username = receiveAuthentication(data_socket, status);
+    receiveLogoutNonce(data_socket, username);
+
+    cout<<username<< " logout nonce: "<<(*users).at(username).logout_nonce<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Change user status to 1 if the user is available to        *|
@@ -329,12 +332,14 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
             char msg[GENERAL_MSG_SIZE];
             unsigned int len;
             receive(sender_socket, sender, len, msg, GENERAL_MSG_SIZE);
+            checkLogout(sender_socket, msg, len, 1, sender);
             forward(receiver, msg, len);
         }
         if (FD_ISSET(receiver_socket, &copy)){
             char msg[GENERAL_MSG_SIZE];
             unsigned int len;
             receive(receiver_socket, receiver, len, msg, GENERAL_MSG_SIZE);
+            checkLogout(receiver_socket, msg, len, 1, receiver);
             forward(sender, msg, len);
         }
     }
@@ -439,12 +444,13 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
         cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
         exit(1);
     }
-    cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Check if the message is a logout message                   *|
     \* ---------------------------------------------------------- */
     checkLogout(data_socket, authentication_buf, authentication_len, 0, "");
+
+    cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Extract the fields from the message                        *|
@@ -478,6 +484,74 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
 
     return username;
 }
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function receive the logout nonce from the user.      *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatServer::receiveLogoutNonce(int data_socket, string username){
+    /* ---------------------------------------------------------- *\
+    |* Receive logout nonce message from the sender               *|
+    \* ---------------------------------------------------------- */
+    unsigned char msg[LOGOUT_NONCE_MSG_SIZE];
+    unsigned len = recv(data_socket, (void*)msg, LOGOUT_NONCE_MSG_SIZE, 0);
+    if (len < 0){ cerr<<"Error in receiving message msg from another user"<<endl; pthread_exit(NULL); }
+
+    /* ---------------------------------------------------------- *\
+    |* Verify logout nonce message authenticity                   *|
+    \* ---------------------------------------------------------- */
+    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    unsigned int clear_message_len = len - SIGNATURE_SIZE;
+    if (Utility::verifyMessage(getUserKey(username), (char*)msg, clear_message_len, (unsigned char*)((unsigned long)msg+clear_message_len), SIGNATURE_SIZE) != 1) { 
+        cerr<<"Authentication error while receiving message msg"<<endl; pthread_exit(NULL);
+    }
+
+    /* ---------------------------------------------------------- *\
+    |* Initialize variables for decrypting                        *|
+    \* ---------------------------------------------------------- */
+    const EVP_CIPHER* cipher = EVP_aes_256_cbc();
+    unsigned int iv_len = EVP_CIPHER_iv_length(cipher);
+    unsigned int encrypted_key_len = EVP_PKEY_size(this->server_prvkey);
+    unsigned int cphr_size = clear_message_len - encrypted_key_len - iv_len;
+    unsigned int plaintext_len;
+    unsigned char* encrypted_key = (unsigned char*)malloc(encrypted_key_len);
+    unsigned char* iv = (unsigned char*)malloc(iv_len);
+    unsigned char* ciphertext = (unsigned char*)malloc(cphr_size);
+    unsigned char* plaintext = (unsigned char*)malloc(cphr_size);
+    if(!encrypted_key || !iv || !ciphertext || !plaintext) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }    
+
+    /* ---------------------------------------------------------- *\
+    |* Insert the fields from logout nonce message                *|
+    |* into the respective variables                              *|
+    \* ---------------------------------------------------------- */
+    unsigned int index = 0;
+    memcpy(ciphertext, msg, cphr_size);
+    index = cphr_size;
+    if (index + (unsigned long)msg < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
+    memcpy(iv, msg+index, iv_len);
+    if (index + iv_len < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
+    index += iv_len;
+    if (index + (unsigned long)msg < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
+    memcpy(encrypted_key, msg+index, encrypted_key_len);
+
+    /* ---------------------------------------------------------- *\
+    |* Decrypt the message                                        *|
+    \* ---------------------------------------------------------- */
+    if (!Utility::decryptMessage(plaintext, ciphertext, cphr_size, iv, encrypted_key, encrypted_key_len, this->server_prvkey, plaintext_len)) { cerr<<"Error while decrypting"<<endl; pthread_exit(NULL); }
+
+    Utility::printMessage("Logout nonce message: ", plaintext, plaintext_len);
+    /* ---------------------------------------------------------- *\
+    |* Analyze the content of the plaintext                       *|
+    \* ---------------------------------------------------------- */
+    if (plaintext[0] != 9){ cerr<<"Thread "<<gettid()<<": Message type is not corresponding to logout nonce message."<<endl; pthread_exit(NULL); }
+
+    if(1 + (unsigned long)plaintext < 1) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    //pthread_mutex_lock(&(*users).at(username).user_mutex);
+    memcpy((*users).at(username).logout_nonce, plaintext + 1, NONCE_SIZE);
+    //pthread_mutex_unlock(&(*users).at(username).user_mutex);
+}
+
 
 /* ---------------------------------------------------------- *\
 |*                                                            *|
@@ -805,6 +879,8 @@ void SecureChatServer::forwardResponse(string sender_username, unsigned int resp
 }
 
 void SecureChatServer::checkLogout(int data_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username){
+    //TODO: aggiungere nonce
+    
     if(msg[0] != 8)
         return;
 
@@ -812,38 +888,58 @@ void SecureChatServer::checkLogout(int data_socket, char* msg, unsigned int buff
         if(auth_required == 1) //it is not possible to accept logout
             return;
         close(data_socket);
+        cout<<"logout completed correctly"<<endl;
         pthread_exit(NULL);
     }
     else{
+        unsigned int len = 2;
+        unsigned char* logout_nonce = (unsigned char*)malloc(NONCE_SIZE);
+        if (!logout_nonce){
+            cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
+            pthread_exit(NULL);
+        }
+        if (len + (unsigned long)msg < len){
+            cerr<<"Wrap around"<<endl;
+            pthread_exit(NULL);
+        }
+        
+        memcpy(logout_nonce, msg+len, NONCE_SIZE);
+        len += NONCE_SIZE;
+
         unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
         if (!signature){
             cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
             pthread_exit(NULL);
         }
-        if (2 + (unsigned long)msg < 2){
+        if (len + (unsigned long)msg < len){
             cerr<<"Wrap around"<<endl;
             pthread_exit(NULL);
         }
-        memcpy(signature, msg+2, SIGNATURE_SIZE);
+        memcpy(signature, msg+len, SIGNATURE_SIZE);
 
-        char* clear_message = (char*)malloc(2);
+        char* clear_message = (char*)malloc(len);
         if (!clear_message){
             cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
             pthread_exit(NULL);
         }
-        memcpy(clear_message, msg, 2);
+        memcpy(clear_message, msg, len);
 
         EVP_PKEY* pubkey = getUserKey(username);
 
-        if(Utility::verifyMessage(pubkey, clear_message, 2, signature, SIGNATURE_SIZE) != 1) { 
+        if(Utility::verifyMessage(pubkey, clear_message, len, signature, SIGNATURE_SIZE) != 1) { 
             cerr<<"Thread "<<gettid()<<": logout not accepted"<<endl;
             return;
         }
-
-        pthread_mutex_lock(&(*users).at(username).user_mutex);
-        close(data_socket);
-        pthread_mutex_unlock(&(*users).at(username).user_mutex);
-        pthread_exit(NULL);
+        
+        if(memcmp(logout_nonce, (*users).at(username).logout_nonce, NONCE_SIZE) == 0){
+            pthread_mutex_lock(&(*users).at(username).user_mutex);
+            close(data_socket);
+            pthread_mutex_unlock(&(*users).at(username).user_mutex);
+            cout<<username<<" logout completed correctly"<<endl;
+            pthread_exit(NULL);
+        } else { cerr<<"Thread "<<gettid()<<": logout nonce not corresponding"<<endl;
+            return;
+        }
     }
 }
 

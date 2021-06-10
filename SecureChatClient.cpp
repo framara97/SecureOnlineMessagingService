@@ -9,6 +9,7 @@
 
 string SecureChatClient::username;
 unsigned int SecureChatClient::choice;
+unsigned char SecureChatClient::logout_nonce[NONCE_SIZE];
 EVP_PKEY* SecureChatClient::client_prvkey = NULL;
 X509* SecureChatClient::ca_certificate = NULL;
 X509_CRL* SecureChatClient::ca_crl = NULL;
@@ -72,6 +73,12 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
 
     //Send a message to authenticate to the server
     authenticateUser(choice);
+
+    //Create logout nonce
+    RAND_poll();
+    RAND_bytes(this->logout_nonce, NONCE_SIZE);
+
+    sendLogoutNonce();
 
     unsigned int response;
     EVP_PKEY* peer_key;
@@ -667,13 +674,67 @@ unsigned int SecureChatClient::waitForResponse(){
     return response;
 };
 
-void SecureChatClient::logout(unsigned int authenticated){
+void SecureChatClient::sendLogoutNonce(){
+    // 9 | nonce | [signature] 
+    unsigned char msg[LOGOUT_NONCE_MSG_SIZE];
+    unsigned int msg_len = 0;
+    const unsigned int plaintext_len = K_SIZE + 1;
+    unsigned char plaintext[plaintext_len];
+    plaintext[0] = 9;
+    unsigned char* encrypted_key, *iv, *ciphertext;
+    unsigned int cipherlen;
+    int outlen, encrypted_key_len;
+    if (1 + (unsigned long)plaintext < 1){ cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(plaintext+1, this->logout_nonce, NONCE_SIZE);
+
+    if (!Utility::encryptMessage(plaintext_len, this->server_pubkey, plaintext, ciphertext, encrypted_key, iv, encrypted_key_len, outlen, cipherlen)){ cerr<<"Error while encrypting"<<endl; exit(1); }
+    if (cipherlen > LOGOUT_NONCE_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    memcpy(msg, ciphertext, cipherlen);
+    msg_len = cipherlen;
+    unsigned int iv_len = EVP_CIPHER_iv_length(EVP_aes_256_cbc());
+    if (msg_len + (unsigned long)msg < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + iv_len < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + iv_len > LOGOUT_NONCE_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    memcpy(msg+msg_len, iv, iv_len);
+    msg_len += iv_len;
+    if (msg_len + (unsigned long)msg < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + encrypted_key_len < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + encrypted_key_len > LOGOUT_NONCE_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    memcpy(msg+msg_len, encrypted_key, encrypted_key_len);
+    msg_len += encrypted_key_len;
+
+    /* ---------------------------------------------------------- *\
+    |* Sign the logout nonce message                              *|
+    \* ---------------------------------------------------------- */
+    unsigned char* msg_signature;
+    unsigned int msg_signature_len;
+    Utility::signMessage(client_prvkey, (char*)msg, msg_len, &msg_signature, &msg_signature_len);
+    if (msg_len + (unsigned long)msg < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + msg_signature_len < msg_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (msg_len + msg_signature_len > LOGOUT_NONCE_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    memcpy(msg+msg_len, msg_signature, msg_signature_len);
+    msg_len += msg_signature_len;
+
+    /* ---------------------------------------------------------- *\
+    |* Send the logout nonce message                              *|
+    \* ---------------------------------------------------------- */
+    if (send(this->server_socket, msg, msg_len, 0) < 0) { 
+        cerr<<"Error in the sendto of the message msg"<<endl; 
+        exit(1); 
+    }
+
+}
+
+void SecureChatClient::logout(unsigned int authenticated){ //TODO: aggiungere nonce
     // 8 | 0/1 | [signature] []: only whether user is authenticated
     char msg[LOGOUT_MAX_SIZE];
     msg[0] = 8; //Type = 8, logout message
     msg[1] = authenticated;
     unsigned int len = 2;
     unsigned int msg_len = 2;
+    if (len + (unsigned long)msg < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    memcpy(msg+len, this->logout_nonce, NONCE_SIZE);
+    len += NONCE_SIZE;
     if(authenticated == 1){
         unsigned char* signature;
         unsigned int signature_len;
@@ -1047,7 +1108,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* peer_key){
-    cout<<"Starting chat with "<<other_username<<endl;
+    cout<<"Starting chat with "<<other_username<<"(press 'q' to logout)"<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Create a fd_set structure to manage the server socket      *|
@@ -1112,8 +1173,16 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
                 cerr<<"Replay attack"<<endl;
                 exit(1);
             }
-
-            Utility::printChatMessage(other_username, (char*)plaintext+sizeof(other_nonce), plaintext_len-sizeof(other_nonce));
+            char* buf = (char*)plaintext+sizeof(other_nonce);
+            buf[plaintext_len-sizeof(other_nonce)] = '\0';
+            if(strcmp((char*)plaintext+sizeof(other_nonce), "q") != 0){
+                Utility::printChatMessage(other_username, (char*)plaintext+sizeof(other_nonce), plaintext_len-sizeof(other_nonce));
+            } else {
+                cout<<other_username<<" logout and close the communication"<<endl;
+                //Logout
+                logout(1); //authenticated logout
+                exit(0);
+            }
             other_nonce++;
         }
         if (FD_ISSET(STDIN_FILENO, &copy)){
@@ -1123,9 +1192,8 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             char* p = strchr(input, '\n');
             if (p){*p = '\0';}
             if (strcmp(input, "")==0){continue;}
-
             /* ---------------------------------------------------------- *\
-            |* Encrypt K using K                                          *|
+            |* Encrypt msg using K                                        *|
             \* ---------------------------------------------------------- */
             unsigned int msg_len = 0;
             unsigned int plaintext_len = strlen(input)+sizeof(my_nonce);
@@ -1160,6 +1228,12 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             if (send(this->server_socket, msg, msg_len, 0) < 0) { cerr<<"Error in the sendto of a message."<<endl; exit(1); }
             //Utility::printMessage("Sent message:", (unsigned char*)msg, msg_len);
             my_nonce++;
+
+            if(strcmp(input, "q")==0){
+                //Logout
+                logout(1); //authenticated logout
+                exit(0);
+            }
         }
     }
 }

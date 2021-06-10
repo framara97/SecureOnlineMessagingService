@@ -24,6 +24,9 @@ struct User {
     //0: offline
     unsigned int status;
 
+    //User nonce for logout
+    unsigned char logout_nonce[NONCE_SIZE];
+
     //security fields
     EVP_PKEY* pubkey;
 
