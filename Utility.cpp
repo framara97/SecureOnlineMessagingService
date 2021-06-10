@@ -80,7 +80,7 @@ X509* Utility::readCertificate(string path){
     certificate = PEM_read_X509(cert_file, NULL, NULL, NULL);
     fclose(cert_file);
     if(!certificate){
-        cerr<<"Error in reading the certificate from the file"<<endl;
+        cerr<<"ERR: Error in reading the certificate from the file"<<endl;
         exit(1);
     }
     return certificate;
@@ -106,7 +106,7 @@ X509_CRL* Utility::readCRL(string path){
     crl = PEM_read_X509_CRL(crl_file, NULL, NULL, NULL);
     fclose(crl_file);
     if(!crl){
-        cerr<<"Error in reading the CRL from the file"<<endl;
+        cerr<<"ERR: Error in reading the CRL from the file"<<endl;
         exit(1);
     }
     return crl;
@@ -147,17 +147,17 @@ EVP_PKEY* Utility::generateTprivK(string username){
     EVP_PKEY* tprivk;
     string tprivk_path = "./client/" + username + "/tprivk.pem";
     argv1[2] = (char*)malloc(tprivk_path.length()+1);
-    if(!argv1[2]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    if(!argv1[2]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv1[2], tprivk_path.c_str(), tprivk_path.length());
     argv1[2][tprivk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){ execv("/bin/openssl", argv1); exit(0); }
-    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    if (pid < 0){ cerr<<"ERR: Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
     FILE* file = fopen(tprivk_path.c_str(), "r");
-    if(!file){ cerr<<"Error while reading the fileX"<<endl; exit(1); }
+    if(!file){ cerr<<"ERR: Error while reading the fileX"<<endl; exit(1); }
     tprivk = PEM_read_PrivateKey(file, NULL, NULL, NULL);
-    if(!tprivk) { cerr<<"Error while reading the private key"<<endl; exit(1); }
+    if(!tprivk) { cerr<<"ERR: Error while reading the private key"<<endl; exit(1); }
     fclose(file);
     return tprivk;
 }
@@ -168,22 +168,22 @@ EVP_PKEY* Utility::generateTpubK(string username){
     string tpubk_path = "./client/" + username + "/tpubk.pem";
     char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
     argv2[3] = (char*)malloc(tprivk_path.length()+1);
-    if (!argv2[3]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    if (!argv2[3]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
     argv2[3][tprivk_path.length()] = '\0';
     argv2[5] = (char*)malloc(tpubk_path.length()+1);
-    if (!argv2[5]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    if (!argv2[5]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv2[5], tpubk_path.c_str(), tpubk_path.length());
     argv2[5][tpubk_path.length()] = '\0';
     pid = fork();
     if (pid == 0){ execv("/bin/openssl", argv2); exit(0); }
-    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    if (pid < 0){ cerr<<"ERR: Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
     EVP_PKEY* tpubk;
     FILE* file = fopen(tpubk_path.c_str(), "r");
-    if(!file){ cerr<<"Error while reading the file"<<endl; exit(1); }
+    if(!file){ cerr<<"ERR: Error while reading the file"<<endl; exit(1); }
     tpubk = PEM_read_PUBKEY(file, NULL, NULL, NULL);
-    if(!tpubk){ cerr<<"Error while reading the public key"<<endl; exit(1); }
+    if(!tpubk){ cerr<<"ERR: Error while reading the public key"<<endl; exit(1); }
     fclose(file);
     return tpubk;
 }
@@ -192,12 +192,12 @@ void Utility::removeTprivK(string username){
     string tprivk_path = "./client/" + username + "/tprivk.pem";
     char* argv4[3] = {strdup("/bin/rm"), strdup(""), NULL};
     argv4[1] = (char*)malloc(tprivk_path.length());
-    if (!argv4[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    if (!argv4[1]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv4[1], tprivk_path.c_str(), tprivk_path.length());
     argv4[1][tprivk_path.length()] = '\0';
     pid_t pid = fork();
     if (pid == 0){ execv("/bin/rm", argv4); exit(0); }
-    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    if (pid < 0){ cerr<<"ERR: Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
 }
 
@@ -205,12 +205,12 @@ void Utility::removeTpubK(string username){
     string tpubk_path = "./client/" + username + "/tpubk.pem";
     char* argv3[3] = {strdup("/bin/rm"), strdup(""), NULL};
     argv3[1] = (char*)malloc(tpubk_path.length()+1);
-    if (!argv3[1]){ cerr<<"Malloc didn't work"<<endl; exit(1); }
+    if (!argv3[1]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv3[1], tpubk_path.c_str(), tpubk_path.length());
     argv3[1][tpubk_path.length()] = '\0';
     pid_t pid = fork();
     if (pid == 0){ execv("/bin/rm", argv3); exit(0); }
-    if (pid < 0){ cerr<<"Error while creating a new process"<<endl; exit(1); }
+    if (pid < 0){ cerr<<"ERR: Error while creating a new process"<<endl; exit(1); }
     waitpid(pid, NULL, 0);
 }
 
@@ -229,8 +229,7 @@ bool Utility::compareR(const unsigned char* R1, const unsigned char* R2){
     for (int i = 0; i < R_SIZE; i++){ 
         if(R1[i] != R2[i]) { ok = false; break; }
     }
-    if(ok==false) { cout<<"Nonce R not correctly exchanged"<<endl; }
-    else { cout<<"Nonce R correctly exchanged"<<endl; }
+    if(ok==false) { cerr<<"ERR: Nonce R not correctly exchanged"<<endl; }
     return ok;
 }
 
@@ -244,7 +243,7 @@ bool Utility::encryptMessage(int plaintext_len, EVP_PKEY* pubkey, unsigned char*
     if(ret == 0) { return false; }
     ret = EVP_SealUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
     if(ret == 0) { return false; }
-    if (cipherlen + outlen < cipherlen){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (cipherlen + outlen < cipherlen){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
     cipherlen += outlen;
     ret = EVP_SealFinal(ctx, ciphertext + cipherlen, &outlen);
     if(ret == 0) { return false; }
@@ -261,7 +260,7 @@ bool Utility::decryptMessage(unsigned char* &plaintext, unsigned char *ciphertex
     unsigned int ret = EVP_OpenInit(ctx, cipher, encrypted_key, encrypted_key_len, iv, prvkey);
     if(ret == 0) { return false; }
     EVP_OpenUpdate(ctx, plaintext + plaintext_len, &outlen, ciphertext, ciphertext_len);
-    if (plaintext_len + outlen < plaintext_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (plaintext_len + outlen < plaintext_len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
     plaintext_len += outlen;
     ret = EVP_OpenFinal(ctx, plaintext + plaintext_len, &outlen);
     if(ret == 0) { return false; }
@@ -291,7 +290,7 @@ bool Utility::encryptSessionMessage(int plaintext_len, unsigned char* key, unsig
     if(ret == 0) { return false; }
     ret = EVP_EncryptUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
     if(ret == 0) { return false; }
-    if (cipherlen + outlen < cipherlen){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (cipherlen + outlen < cipherlen){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
     cipherlen += outlen;
     ret = EVP_EncryptFinal(ctx, ciphertext + cipherlen, &outlen);
     if(ret == 0) { return false; }
@@ -308,7 +307,7 @@ bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *ci
     unsigned int ret = EVP_DecryptInit(ctx, cipher, key, NULL);
     if(ret == 0) { return false; }
     EVP_DecryptUpdate(ctx, plaintext + plaintext_len, &outlen, ciphertext, ciphertext_len);
-    if (plaintext_len + outlen < plaintext_len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (plaintext_len + outlen < plaintext_len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
     plaintext_len += outlen;
     ret = EVP_DecryptFinal(ctx, plaintext + plaintext_len, &outlen);
     if(ret == 0) { return false; }
