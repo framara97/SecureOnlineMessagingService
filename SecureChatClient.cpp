@@ -56,7 +56,7 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     |* Receive server certificate                                 *|
     \* ---------------------------------------------------------- */
     receiveCertificate();
-
+    //TODO: salvare in due variabili TpubK e TprivK chiavi effimere con il server
     /* ---------------------------------------------------------- *\
     |* Verify server certificate                                  *|
     \* ---------------------------------------------------------- */
@@ -201,6 +201,7 @@ void SecureChatClient::setupServerSocket(unsigned short int server_port, const c
 }
 
 void SecureChatClient::receiveCertificate(){
+    //TODO: aggiungere ricezione nonce_server in chiaro dal server
     unsigned char* certificate_buf = (unsigned char*)malloc(CERTIFICATE_MAX_SIZE);
     if (!certificate_buf){
         cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl;
@@ -282,7 +283,8 @@ void SecureChatClient::verifyCertificate(){
 }
 
 void SecureChatClient::authenticateUser(unsigned int choice){
-
+    //TODO: aggiungere nonce_user e tpubk da mandare in chiaro al server
+    //firmare nonce_server tpubk e ruolo
     if (username.length() >= USERNAME_MAX_SIZE){ cerr<<"ERR: Username length too large."<<endl; exit(1); }
     
     const unsigned int plaintext_len = NONCE_SIZE;

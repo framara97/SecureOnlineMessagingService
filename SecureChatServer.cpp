@@ -179,7 +179,8 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     \* ---------------------------------------------------------- */
     unsigned int status;
     string username = receiveAuthentication(data_socket, status);
-
+    //TODO: generare K e inviare S3
+    //S3 = E(tpubk,K), nonce_user firmato, IV e encrypted key in chiaro
     /* ---------------------------------------------------------- *\
     |* Change user status to 1 if the user is available to        *|
     |* receive a message                                          *|
@@ -359,7 +360,7 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::sendCertificate(int data_socket){
-
+    //TODO: aggiungere nonce_server in chiaro da mandare allo user
     /* ---------------------------------------------------------- *\
     |* Serialize the certificate                                  *|
     \* ---------------------------------------------------------- */
@@ -437,6 +438,8 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
 |*                                                            *|
 \* ---------------------------------------------------------- */
 string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &status){
+    //TODO: aggiungere ricezione nonce_user e tpubk in chiaro dallo user
+    // nonce_server tpubk e ruolo firmati
     /* ---------------------------------------------------------- *\
     |* Receive the authentication message                         *|
     \* ---------------------------------------------------------- */
