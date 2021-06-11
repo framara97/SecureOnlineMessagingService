@@ -167,18 +167,27 @@ void SecureChatServer::listenRequests(){
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_address){
+    /* ---------------------------------------------------------- *\
+    |* Create message R_server                                    *|
+    \* ---------------------------------------------------------- */
+    RAND_poll();
+    unsigned char R_server[R_SIZE];
+    RAND_bytes(R_server, R_SIZE);
 
     /* ---------------------------------------------------------- *\
     |* Send certificate to the new user                           *|
     \* ---------------------------------------------------------- */
-    sendCertificate(data_socket);
+    sendCertificate(data_socket, R_server);
     cout<<"Thread "<<gettid()<<": Certificate sent"<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Receive authentication from the user                       *|
     \* ---------------------------------------------------------- */
     unsigned int status;
-    string username = receiveAuthentication(data_socket, status);
+    unsigned char* R_user; 
+    EVP_PKEY* tpubk;
+    string username = receiveAuthentication(data_socket, status, R_server, R_user, tpubk);
+    Utility::printMessage("R_user ", R_user, R_SIZE);
     //TODO: generare K e inviare S3
     //S3 = E(tpubk,K), nonce_user firmato, IV e encrypted key in chiaro
     /* ---------------------------------------------------------- *\
@@ -359,7 +368,9 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
 |* This function sends the certificate to a user.             *|
 |*                                                            *|
 \* ---------------------------------------------------------- */
-void SecureChatServer::sendCertificate(int data_socket){
+void SecureChatServer::sendCertificate(int data_socket, unsigned char* R_server){
+    char* buf = (char*)malloc(S1_SIZE);
+    memcpy(buf, R_server, R_SIZE);
     //TODO: aggiungere nonce_server in chiaro da mandare allo user
     /* ---------------------------------------------------------- *\
     |* Serialize the certificate                                  *|
@@ -369,11 +380,16 @@ void SecureChatServer::sendCertificate(int data_socket){
     char* certificate_buf = NULL;
     long certificate_size = BIO_get_mem_data(mbio, &certificate_buf);
 	
+    if (R_SIZE + certificate_size < R_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    if (R_SIZE + (unsigned long)buf < R_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    if (R_SIZE + certificate_size > S1_SIZE) { cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
+    memcpy(buf+R_SIZE, certificate_buf, certificate_size);
     /* ---------------------------------------------------------- *\
     |* Send the certificate                                       *|
     \* ---------------------------------------------------------- */
-	if (send(data_socket, certificate_buf, certificate_size, 0) < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the certificate."<<endl;
+    if (R_SIZE + certificate_size < R_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+	if (send(data_socket, buf, R_SIZE + certificate_size, 0) < 0){
+		cerr<<"Error in the sendto of the message containing the certificate."<<endl;
 		pthread_exit(NULL);
 	}
 
@@ -437,106 +453,90 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
 |* from the client and verifies it.                           *|
 |*                                                            *|
 \* ---------------------------------------------------------- */
-string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &status){
+string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &status, unsigned char* R_server, unsigned char* &R_user, EVP_PKEY* &tpubk){
     //TODO: aggiungere ricezione nonce_user e tpubk in chiaro dallo user
     // nonce_server tpubk e ruolo firmati
     /* ---------------------------------------------------------- *\
     |* Receive the authentication message                         *|
     \* ---------------------------------------------------------- */
-    char* authentication_buf = (char*)malloc(AUTHENTICATION_MAX_SIZE);
-    if (!authentication_buf){
+    char* buf = (char*)malloc(S2_SIZE);
+    if (!buf){
         cerr<<"There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
 
-    unsigned int authentication_len = recv(data_socket, (void*)authentication_buf, AUTHENTICATION_MAX_SIZE, 0);
-    if (authentication_len < 0){
+    unsigned int len = recv(data_socket, (void*)buf, S2_SIZE, 0);
+    if (len < 0){
         cerr<<"Thread "<<gettid()<<": Error in receiving the authentication message"<<endl;
         exit(1);
     }
-
-    /* ---------------------------------------------------------- *\
-    |* Check if the message is a logout message                   *|
-    \* ---------------------------------------------------------- */
-    checkLogout(data_socket, 0, authentication_buf, authentication_len, 0, "", "");
 
     cout<<"Thread "<<gettid()<<": Authentication message received"<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Extract the fields from the message                        *|
     \* ---------------------------------------------------------- */
-    status = authentication_buf[0];
-    if (status != 0 && status != 1){
-        cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
-        exit(1);
-    }
-    unsigned int username_len = authentication_buf[1];
+    unsigned int username_index = 1 + 2*R_SIZE + PUBKEY_SIZE;
+    unsigned int signed_msg_len = username_index;
+    unsigned int username_len = buf[username_index];
+    if (1 + username_index < 1){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    username_index++;
     if (username_len > USERNAME_MAX_SIZE){
         cerr<<"Thread "<<gettid()<<": Username length is over the upper bound."<<endl;
     }
     string username;
-    if (2 + (unsigned long)authentication_buf < 2){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    username.append(authentication_buf+2, username_len);
+    if (username_index + (unsigned long)buf < username_index){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    username.append(buf+username_index, username_len);
 
-    if(authentication_len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int clear_message_len = authentication_len - SIGNATURE_SIZE;
+    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    unsigned int clear_message_len = len - SIGNATURE_SIZE;
     if(clear_message_len < 2) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     clear_message_len -= 2;
     if(clear_message_len < username_len) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     clear_message_len -= username_len;
-    /* ---------------------------------------------------------- *\
-    |* Initialize variables for decrypting                        *|
-    \* ---------------------------------------------------------- */
-    const EVP_CIPHER* cipher = EVP_aes_256_cbc();
-    unsigned int iv_len = EVP_CIPHER_iv_length(cipher);
-    unsigned int encrypted_key_len = EVP_PKEY_size(this->server_prvkey);
-    unsigned int cphr_size = clear_message_len - encrypted_key_len - iv_len;
-    unsigned int plaintext_len;
-    unsigned char* encrypted_key = (unsigned char*)malloc(encrypted_key_len);
-    unsigned char* iv = (unsigned char*)malloc(iv_len);
-    unsigned char* ciphertext = (unsigned char*)malloc(cphr_size);
-    unsigned char* plaintext = (unsigned char*)malloc(cphr_size);
-    if(!encrypted_key || !iv || !ciphertext || !plaintext) { cerr<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }    
-
-    /* ---------------------------------------------------------- *\
-    |* Insert the fields from logout nonce message                *|
-    |* into the respective variables                              *|
-    \* ---------------------------------------------------------- */
-    unsigned int index = 2 + username_len;
-    if (index + (unsigned long)authentication_buf < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
-    memcpy(ciphertext, authentication_buf + index, cphr_size);
-    index += cphr_size;
-    if (index + (unsigned long)authentication_buf < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
-    memcpy(iv, authentication_buf+index, iv_len);
-    if (index + iv_len < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
-    index += iv_len;
-    if (index + (unsigned long)authentication_buf < index){ cerr<<"Wrap around."<<endl; pthread_exit(NULL); }
-    memcpy(encrypted_key, authentication_buf+index, encrypted_key_len);
-
-    /* ---------------------------------------------------------- *\
-    |* Decrypt the message                                        *|
-    \* ---------------------------------------------------------- */
-    if (!Utility::decryptMessage(plaintext, ciphertext, cphr_size, iv, encrypted_key, encrypted_key_len, this->server_prvkey, plaintext_len)) { cerr<<"Error while decrypting"<<endl; pthread_exit(NULL); }
 
     /* ---------------------------------------------------------- *\
     |* Verify the authenticity of the message                     *|
     \* ---------------------------------------------------------- */
-    if(authentication_len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int signed_message_len = authentication_len - SIGNATURE_SIZE;
-    if ((unsigned long)authentication_buf + signed_message_len < signed_message_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    EVP_PKEY* pubkey = getUserKey(username);
-
-    if(Utility::verifyMessage(pubkey, authentication_buf, signed_message_len, (unsigned char*)((unsigned long)authentication_buf+signed_message_len), SIGNATURE_SIZE) != 1) { 
+    if ((unsigned long)buf + signed_msg_len < signed_msg_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    if (len < SIGNATURE_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
+    if(Utility::verifyMessage(getUserKey(username), buf, signed_msg_len, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
         cerr<<"Thread "<<gettid()<<": Authentication error while receiving the authentication"<<endl;
         pthread_exit(NULL);
     }
     cout<<"Thread "<<gettid()<<": Authentication of authentication message is ok"<<endl;
 
+    unsigned char* R_server_received = (unsigned char*)malloc(R_SIZE);
+    R_user = (unsigned char*)malloc(R_SIZE);
+    unsigned int tpubk_index = 1 + 2*R_SIZE; 
+
+    Utility::secure_thread_memcpy(R_server_received, 0, R_SIZE, (unsigned char*)buf, 1, len, R_SIZE);
+    Utility::printMessage("R_server ", R_server, R_SIZE);
+    Utility::printMessage("R_server_received ", R_server_received, R_SIZE);
+    if(Utility::compareR(R_server, R_server_received) == false) {
+        cerr<<"Thread "<<gettid()<<": R_server not corrisponding"<<endl;
+        pthread_exit(NULL);
+    }
+    
     /* ---------------------------------------------------------- *\
     |* Analyze the content of the plaintext                       *|
     \* ---------------------------------------------------------- */
 
-    memcpy((*users).at(username).logout_nonce, plaintext, NONCE_SIZE);
+    Utility::secure_thread_memcpy(R_user, 0, R_SIZE, (unsigned char*)buf, 1+R_SIZE, len, R_SIZE);
+    /* ---------------------------------------------------------- *\
+    |* Read the TpubK                                             *|
+    \* ---------------------------------------------------------- */
+    BIO* mbio = BIO_new(BIO_s_mem());
+    if(tpubk_index + (unsigned long)buf < tpubk_index ) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    BIO_write(mbio, buf + tpubk_index, PUBKEY_SIZE);
+    tpubk = PEM_read_bio_PUBKEY(mbio, NULL, NULL, NULL);
+    BIO_free(mbio);
+
+    status = buf[0];
+    if (status != 0 && status != 1){
+        cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'authentication type'."<<endl;
+        exit(1);
+    }
 
     return username;
 }
@@ -604,7 +604,7 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     \* ---------------------------------------------------------- */
     for (unsigned int i = 0; i < available.size(); i++){
         if (available[i].username.compare(username) != 0){
-            if (len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"Access our-of-bound"<<endl; pthread_exit(NULL); }
+            if (len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
             buf[len] = available[i].username.length();
             if (len + 1 == 0){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
             len++;

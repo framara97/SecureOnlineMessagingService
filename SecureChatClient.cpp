@@ -55,7 +55,7 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     /* ---------------------------------------------------------- *\
     |* Receive server certificate                                 *|
     \* ---------------------------------------------------------- */
-    receiveCertificate();
+    unsigned char* R_server = receiveCertificate();
     //TODO: salvare in due variabili TpubK e TprivK chiavi effimere con il server
     /* ---------------------------------------------------------- *\
     |* Verify server certificate                                  *|
@@ -86,15 +86,17 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     choice = input.c_str()[0]-'0';
 
     /* ---------------------------------------------------------- *\
-    |* Create logout nonce                                        *|
+    |* Generating TpubK e TprvK                                   *|
     \* ---------------------------------------------------------- */
-    RAND_poll();
-    RAND_bytes(this->logout_nonce, NONCE_SIZE);
+    EVP_PKEY* tprivk = Utility::generateTprivK(this->username);
+    EVP_PKEY* tpubk = Utility::generateTpubK(this->username);
+    Utility::removeTprivK(this->username);
+    Utility::removeTpubK(this->username);
 
     /* ---------------------------------------------------------- *\
     |* Send a message to authenticate to the server               *|
     \* ---------------------------------------------------------- */
-    authenticateUser(choice);
+    authenticateUser(choice, R_server, tpubk);
 
     unsigned int response;
     EVP_PKEY* peer_key;
@@ -200,23 +202,59 @@ void SecureChatClient::setupServerSocket(unsigned short int server_port, const c
     cout<<"LOG: Connected to the server"<<endl;
 }
 
-void SecureChatClient::receiveCertificate(){
-    //TODO: aggiungere ricezione nonce_server in chiaro dal server
-    unsigned char* certificate_buf = (unsigned char*)malloc(CERTIFICATE_MAX_SIZE);
-    if (!certificate_buf){
+unsigned char* SecureChatClient::receiveCertificate(){
+    unsigned char* buf = (unsigned char*)malloc(S1_SIZE);
+    if (!buf){
+        cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl;
+        exit(1);
+    }
+    
+    cout<<"LOG: Waiting for certificate"<<endl;
+    unsigned int len = recv(this->server_socket, (void*)buf, S1_SIZE, 0);
+    if (len < 0){ cerr<<"ERR: Error in receiving the certificate"<<endl; exit(1); }
+    cout<<"LOG: Certificate received"<<endl;
+
+    unsigned char* R_server = (unsigned char*)malloc(R_SIZE);
+    if (!R_server){
         cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl;
         exit(1);
     }
 
-    cout<<"LOG: Waiting for certificate"<<endl;
-    if (recv(this->server_socket, (void*)certificate_buf, CERTIFICATE_MAX_SIZE, 0) < 0){ cerr<<"ERR: Error in receiving the certificate"<<endl; exit(1); }
-    cout<<"LOG: Certificate received"<<endl;
+    if (len < R_SIZE) { cerr<<"ERR: Access out-of-bound1"<<endl; exit(1); }
+    memcpy(R_server, buf, R_SIZE);
 
+    if (R_SIZE + (unsigned long)buf < R_SIZE) { cerr<<"Thread "<<gettid()<<": Wrap around"<<endl; exit(1); }
+    if (len > S1_SIZE) { cerr<<"ERR: Access out-of-bound2"<<endl; exit(1); }
     BIO* mbio = BIO_new(BIO_s_mem());
-    BIO_write(mbio, certificate_buf, CERTIFICATE_MAX_SIZE);
+    BIO_write(mbio, buf+R_SIZE, CERTIFICATE_MAX_SIZE);
     this->server_certificate = PEM_read_bio_X509(mbio, NULL, NULL, NULL);
     BIO_free(mbio);
+
+    return R_server;
 }
+
+void SecureChatClient::verifyCertificate(){
+    const char* correct_owner_name = "/C=IT/CN=Server";
+    X509_STORE* store = X509_STORE_new();
+    X509_STORE_add_cert(store, ca_certificate);
+    X509_STORE_add_crl(store, ca_crl);
+    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
+
+    X509_STORE_CTX* ctx = X509_STORE_CTX_new();
+    X509_STORE_CTX_init(ctx, store, this->server_certificate, NULL);
+    if(X509_verify_cert(ctx) != 1) {  cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1); }
+
+    X509_NAME* owner_name = X509_get_subject_name(this->server_certificate);
+    char* tmpstr = X509_NAME_oneline(owner_name, NULL, 0);
+    free(owner_name);
+    if(strcmp(tmpstr, correct_owner_name) != 0){ cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1);  }
+
+    this->server_pubkey = X509_get_pubkey(this->server_certificate);
+
+    X509_STORE_CTX_free(ctx);
+    X509_STORE_free(store);
+}
+
 
 EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
     /* ---------------------------------------------------------- *\
@@ -260,84 +298,51 @@ EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
     return peer_pubkey;
 }
 
-void SecureChatClient::verifyCertificate(){
-    const char* correct_owner_name = "/C=IT/CN=Server";
-    X509_STORE* store = X509_STORE_new();
-    X509_STORE_add_cert(store, ca_certificate);
-    X509_STORE_add_crl(store, ca_crl);
-    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
-
-    X509_STORE_CTX* ctx = X509_STORE_CTX_new();
-    X509_STORE_CTX_init(ctx, store, this->server_certificate, NULL);
-    if(X509_verify_cert(ctx) != 1) {  cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1); }
-
-    X509_NAME* owner_name = X509_get_subject_name(this->server_certificate);
-    char* tmpstr = X509_NAME_oneline(owner_name, NULL, 0);
-    free(owner_name);
-    if(strcmp(tmpstr, correct_owner_name) != 0){ cerr<<"ERR: The certificate of the server is not valid"<<endl; exit(1);  }
-
-    this->server_pubkey = X509_get_pubkey(this->server_certificate);
-
-    X509_STORE_CTX_free(ctx);
-    X509_STORE_free(store);
-}
-
-void SecureChatClient::authenticateUser(unsigned int choice){
+void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk){
     //TODO: aggiungere nonce_user e tpubk da mandare in chiaro al server
     //firmare nonce_server tpubk e ruolo
-    if (username.length() >= USERNAME_MAX_SIZE){ cerr<<"ERR: Username length too large."<<endl; exit(1); }
-    
-    const unsigned int plaintext_len = NONCE_SIZE;
-    unsigned char plaintext[plaintext_len];
-    unsigned char* encrypted_key, *iv, *ciphertext;
-    unsigned int cipherlen;
-    int outlen, encrypted_key_len;
-    memcpy(plaintext, this->logout_nonce, NONCE_SIZE);
+    /* ---------------------------------------------------------- *\
+    |* Create message R_user                                      *|
+    \* ---------------------------------------------------------- */
+    RAND_poll();
+    unsigned char R_user[R_SIZE];
+    RAND_bytes(R_user, R_SIZE);
 
-    if (!Utility::encryptMessage(plaintext_len, this->server_pubkey, plaintext, ciphertext, encrypted_key, iv, encrypted_key_len, outlen, cipherlen)){ cerr<<"ERR: Error while encrypting"<<endl; exit(1); }
-    if (cipherlen > LOGOUT_NONCE_MSG_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
+    if (username.length() >= USERNAME_MAX_SIZE){ cerr<<"ERR: Username length too large."<<endl; exit(1); }
 
     /* ------------------------------------------------------------------------------- *\
-    |* 0/1| username_len(1) | username(MAX=16) | logout_nonce(16) | signature(256)     *|
+    |*0/1| nonce_server(16) | nonce_user(16) | tpubk(451) | username_len(1) | username(MAX=16) | signature(256)*|
     \* ------------------------------------------------------------------------------- */
-    char msg[AUTHENTICATION_MAX_SIZE];
+    char msg[S2_SIZE];
     /* ---------------------------------------------------------- *\
     |* Type = choice(0,1), authentication message with 0          *|
     |* to send message or 1 to receive message                    *|
     \* ---------------------------------------------------------- */
     msg[0] = choice; 
+    unsigned int len = 1;
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, R_server, 0, R_SIZE, R_SIZE);
+    len += R_SIZE;
+
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, R_user, 0, R_SIZE, R_SIZE);
+    len += R_SIZE;
+
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)tpubk, 0, PUBKEY_SIZE, PUBKEY_SIZE);
+    len += PUBKEY_SIZE; 
+
+    unsigned int to_sign_len = len;
     unsigned int username_len = username.length(); 
-    msg[1] = username_len;
-    if (username_len + 2 < username_len){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
-    unsigned int len = username_len + 2;
-    if (len >= AUTHENTICATION_MAX_SIZE-SIGNATURE_SIZE){ cerr<<"ERR: Message too long."<<endl; exit(1); }
-    if (2 + (unsigned long)msg < 2){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
-
-    memcpy(msg+2, username.c_str(), username_len);
-
-    if (len + (unsigned long)msg < len){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
-
-    memcpy(msg + len, ciphertext, cipherlen);
-    len += cipherlen;
+    msg[len] = username_len;
+    if (1 + len < 1){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    len++;
     
-    unsigned int iv_len = EVP_CIPHER_iv_length(EVP_aes_256_cbc());
-    if (len + (unsigned long)msg < len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    if (len + iv_len < len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    if (len + iv_len > LOGOUT_NONCE_MSG_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
-    memcpy(msg + len, iv, iv_len);
-    len += iv_len;
-    if (len + (unsigned long)msg < len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    if (len + encrypted_key_len < len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    if (len + encrypted_key_len > LOGOUT_NONCE_MSG_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
-    memcpy(msg + len, encrypted_key, encrypted_key_len);
-    len += encrypted_key_len;
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)username.c_str(), 0, username_len, username_len);
+    len += username_len;
 
     unsigned char* signature;
     unsigned int signature_len;
-    if (len + signature_len < len){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
-    Utility::signMessage(client_prvkey, msg, len, &signature, &signature_len);
-    if (len + signature_len >= AUTHENTICATION_MAX_SIZE){ cerr<<"ERR: Message too long."<<endl; exit(1); }
-    if (len + (unsigned long)msg < len){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
+
+    Utility::signMessage(client_prvkey, msg, to_sign_len, &signature, &signature_len);
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)signature, 0, SIGNATURE_SIZE, signature_len);
     memcpy(msg + len, signature, signature_len);
     len += signature_len;
     

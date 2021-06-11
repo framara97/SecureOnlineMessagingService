@@ -54,6 +54,10 @@ class Utility {
         static bool encryptSessionMessage(int plaintext_len, unsigned char* key, unsigned char* plaintext, unsigned char* &ciphertext, int& outlen, unsigned int& cipherlen);
 
         static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *ciphertext, unsigned int ciphertext_len, unsigned char* key, unsigned int& plaintext_len);
+
+        static void secure_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size);
+
+        static void secure_thread_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size);
 };
 
 #endif

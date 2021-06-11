@@ -57,7 +57,7 @@ class SecureChatClient{
         void setupServerSocket(unsigned short int server_port, const char *server_addr);
 
         //Receive server certificate
-        void receiveCertificate();
+        unsigned char* receiveCertificate();
 
         //Receive user public key
         EVP_PKEY* receiveUserPubKey(string username);
@@ -66,7 +66,7 @@ class SecureChatClient{
         void verifyCertificate();
 
         //Authenticate user
-        void authenticateUser(unsigned int choice);
+        void authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk);
 
         //Receive the list of available users
         string receiveAvailableUsers();

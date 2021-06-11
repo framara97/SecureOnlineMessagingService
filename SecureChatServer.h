@@ -41,10 +41,10 @@ class SecureChatServer{
         void listenRequests();
 
         //Send the certificate to a client
-        void sendCertificate(int process_socket);
+        void sendCertificate(int process_socket, unsigned char* R_server);
 
         //Receive authentication from user
-        string receiveAuthentication(int process_socket, unsigned int &status);
+        string receiveAuthentication(int process_socket, unsigned int &status, unsigned char* R_server, unsigned char* &R_user, EVP_PKEY* &tpubk);
 
         void handleConnection(int data_socket, sockaddr_in client_address);
 
