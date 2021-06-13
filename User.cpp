@@ -87,7 +87,6 @@ User::User(){
 }
 
 void User::printUser(){
-    cout<<"Username: "<<this->username<<endl;
-    cout<<"Pubkey: "<<this->pubkey<<endl;
-    cout<<"Status: "<<this->status<<endl;
+    cout<<"     Username: "<<this->username<<endl;
+    cout<<"     Status: "<<this->status<<endl;
 }

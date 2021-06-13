@@ -53,9 +53,11 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     setupServerSocket(server_port, server_addr);
 
     /* ---------------------------------------------------------- *\
-    |* Receive server certificate                                 *|
+    |* Receive server certificate (S1)                            *|
     \* ---------------------------------------------------------- */
+    cout<<"LOG: Starting Key Establishment with the server"<<endl;
     unsigned char* R_server = receiveCertificate();
+    cout<<"LOG: Message S1 received"<<endl;
     //TODO: salvare in due variabili TpubK e TprivK chiavi effimere con il server
     /* ---------------------------------------------------------- *\
     |* Verify server certificate                                  *|
@@ -94,9 +96,20 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     Utility::removeTpubK(this->username);
 
     /* ---------------------------------------------------------- *\
-    |* Send a message to authenticate to the server               *|
+    |* Send a message to authenticate to the server (S2)          *|
     \* ---------------------------------------------------------- */
-    authenticateUser(choice, R_server, tpubk);
+    unsigned char* R_user;
+    R_user = (unsigned char*)malloc(R_SIZE);
+    if (!R_user){cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1);}
+    authenticateUser(choice, R_server, tpubk, R_user);
+    cout<<"LOG: Message S2 sent"<<endl;
+
+    unsigned char* iv;
+    unsigned char* K = receiveS3Message(iv, tprivk, R_user);
+    cout<<"LOG: Message S3 received"<<endl;
+
+    setCounters(iv);
+    storeK(K);
 
     unsigned int response;
     EVP_PKEY* peer_key;
@@ -298,14 +311,13 @@ EVP_PKEY* SecureChatClient::receiveUserPubKey(string username){
     return peer_pubkey;
 }
 
-void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk){
+void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk, unsigned char* &R_user){
     //TODO: aggiungere nonce_user e tpubk da mandare in chiaro al server
     //firmare nonce_server tpubk e ruolo
     /* ---------------------------------------------------------- *\
     |* Create message R_user                                      *|
     \* ---------------------------------------------------------- */
     RAND_poll();
-    unsigned char R_user[R_SIZE];
     RAND_bytes(R_user, R_SIZE);
 
     if (username.length() >= USERNAME_MAX_SIZE){ cerr<<"ERR: Username length too large."<<endl; exit(1); }
@@ -326,8 +338,16 @@ void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_se
     Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, R_user, 0, R_SIZE, R_SIZE);
     len += R_SIZE;
 
-    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)tpubk, 0, PUBKEY_SIZE, PUBKEY_SIZE);
-    len += PUBKEY_SIZE; 
+    BIO* mbio = BIO_new(BIO_s_mem());
+    PEM_write_bio_PUBKEY(mbio, tpubk);
+    char* pubkey_buf = NULL;
+    long pubkey_size = BIO_get_mem_data(mbio, &pubkey_buf);
+    cout<<"Pubkey length: "<<pubkey_size<<endl;
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)&pubkey_size, 0, sizeof(long), sizeof(long));
+    len += sizeof(long);
+    Utility::secure_memcpy((unsigned char*)msg, len, S2_SIZE, (unsigned char*)pubkey_buf, 0, pubkey_size, pubkey_size);
+    BIO_free(mbio);
+    len += pubkey_size;
 
     unsigned int to_sign_len = len;
     unsigned int username_len = username.length(); 
@@ -352,31 +372,98 @@ void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_se
 	}
 }
 
-string SecureChatClient::receiveAvailableUsers(){
-    char* buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE);
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function receives the message S3 from the server.     *|
+|* Returns K, namely the session key betweem client and server*|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+unsigned char* SecureChatClient::receiveS3Message(unsigned char* &iv, EVP_PKEY* tprivk, unsigned char* R_user){
+    /* ---------------------------------------------------------- *\
+    |* Receive the message                                        *|
+    \* ---------------------------------------------------------- */
+    char* buf = (char*)malloc(S3_SIZE);
     if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    unsigned int len = recv(this->server_socket, (void*)buf, AVAILABLE_USER_MAX_SIZE, 0);
-    if (len < 0){ cerr<<"ERR: Error in receiving the message containing the list of users"<<endl; exit(1); }
+    unsigned int len = recv(this->server_socket, (void*)buf, S3_SIZE, 0);
+    if (len < 1){ cerr<<"ERR: Error in receiving the S3 message"<<endl; exit(1); }
 
-    cout<<"LOG: Message containing the list of users received"<<endl;
-
-    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
-    if (!signature){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    if (len < SIGNATURE_SIZE){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    unsigned int clear_message_len = len - SIGNATURE_SIZE;
-    if (clear_message_len + (unsigned long)buf < clear_message_len){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
-
-    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
-    char* clear_message = (char*)malloc(clear_message_len);
-    if (!clear_message){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    memcpy(clear_message, buf, clear_message_len);
-
-    if(Utility::verifyMessage(this->server_pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
-        cerr<<"ERR: Authentication error in the receiveAvailableUsers"<<endl;
+    if (buf[0] != 1){
+        cerr<<"ERR: Message type is not corresponding to S3"<<endl;
+        exit(1);
+    }
+    /* ---------------------------------------------------------- *\
+    |* Verify the authenticity of the message                     *|
+    \* ---------------------------------------------------------- */
+    if ((unsigned long)buf + R_SIZE < R_SIZE){ cerr<<"Wrap around"<<endl; exit(1); }
+    if (len < SIGNATURE_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
+    if ((unsigned long)buf + len < len){ cerr<<"Wrap around"<<endl; exit(1); }
+    if(Utility::verifyMessage(this->server_pubkey, buf+1, R_SIZE, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
+        cerr<<"ERR: Authentication error while receiving the S3 message"<<endl;
         exit(1);
     }
 
-    if (clear_message_len < 2){ cerr<<"ERR: Message format is not correct"<<endl; exit(1); }
+    unsigned char R_user_received[R_SIZE];
+    Utility::secure_memcpy(R_user_received, 0, R_SIZE, (unsigned char*)buf, 1, S3_SIZE, R_SIZE);
+    if (Utility::compareR(R_user_received, R_user) == false){
+        cerr<<"ERR: R_user not corrisponding"<<endl;
+        exit(1);
+    }
+
+    /* ---------------------------------------------------------- *\
+    |* Initialize variables for decrypting                        *|
+    \* ---------------------------------------------------------- */
+    const EVP_CIPHER* cipher = EVP_aes_256_cbc();
+    unsigned int iv_len = EVP_CIPHER_iv_length(cipher);
+    unsigned int encrypted_key_len = EVP_PKEY_size(tprivk);
+    unsigned int cphr_size = 2*BLOCK_SIZE;
+    unsigned int plaintext_len;
+    unsigned char* encrypted_key = (unsigned char*)malloc(encrypted_key_len);
+    iv = (unsigned char*)malloc(iv_len);
+    unsigned char* ciphertext = (unsigned char*)malloc(cphr_size);
+    unsigned char* plaintext = (unsigned char*)malloc(cphr_size);
+    if(!encrypted_key || !iv || !ciphertext || !plaintext) { cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }    
+
+    /* ---------------------------------------------------------- *\
+    |* Insert the fields from S3 into the respective variables    *|
+    \* ---------------------------------------------------------- */
+    unsigned int index = 1+R_SIZE;
+    Utility::secure_memcpy(ciphertext, 0, cphr_size, (unsigned char*)buf, index, S3_SIZE, cphr_size);
+    index += cphr_size;
+    Utility::secure_memcpy(iv, 0, iv_len, (unsigned char*)buf, index, S3_SIZE, iv_len);
+    index += iv_len;
+    Utility::secure_memcpy(encrypted_key, 0, encrypted_key_len, (unsigned char*)buf, index, S3_SIZE, encrypted_key_len);
+
+    /* ---------------------------------------------------------- *\
+    |* Decrypt the message                                        *|
+    \* ---------------------------------------------------------- */
+    if (!Utility::decryptMessage(plaintext, ciphertext, cphr_size, iv, encrypted_key, encrypted_key_len, tprivk, plaintext_len)) { cerr<<"ERR: Error while decrypting"<<endl; exit(1); }
+
+    return plaintext;
+}
+
+string SecureChatClient::receiveAvailableUsers(){
+    char* enc_buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE+ENC_FIELDS);
+    if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    unsigned int len = recv(this->server_socket, (void*)enc_buf, AVAILABLE_USER_MAX_SIZE+ENC_FIELDS, 0);
+    if (len < 0){ cerr<<"ERR: Error in receiving the message containing the list of users"<<endl; exit(1); }
+
+    cout<<"Len: "<<len<<endl;
+
+    cout<<"LOG: Message containing the list of users received"<<endl;
+
+    unsigned char* buf = (unsigned char*)malloc(AVAILABLE_USER_MAX_SIZE);
+    if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+    unsigned int buf_len;
+    incrementCounter(0);
+    checkCounter(0, (unsigned char*)enc_buf);
+    unsigned char* correct_tag;
+    correct_tag = (unsigned char*)malloc(TAG_SIZE);
+    if (!correct_tag){ cerr<<"ERR: Error in receiving the message containing the list of users"<<endl; exit(1); }
+    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1, correct_tag) == false){
+        cerr<<"ERR: Error while decrypting"<<endl;
+        exit(1);
+    };
+    
     unsigned int message_type = buf[0];
     if (message_type != 2){ cerr<<"ERR: The message type is not corresponding to 'user list'"<<endl; exit(1); }
 
@@ -1002,7 +1089,7 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             |* Decrypt the message                                        *|
             \* ---------------------------------------------------------- */
 
-            if (!Utility::decryptSessionMessage(plaintext, ciphertext, cphr_size, K, plaintext_len)) { cerr<<"ERR: Error while decrypting"<<endl; exit(1); }
+            //if (!Utility::decryptSessionMessage(plaintext, ciphertext, cphr_size, K, plaintext_len)) { cerr<<"ERR: Error while decrypting"<<endl; exit(1); }
 
             /* ---------------------------------------------------------- *\
             |* Verify the freshness                                       *|
@@ -1051,7 +1138,7 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             unsigned char *ciphertext;
             unsigned int cipherlen;
             int outlen;
-            if (!Utility::encryptSessionMessage(plaintext_len, K, plaintext, ciphertext, outlen, cipherlen)){ cerr<<"ERR: Error while encrypting"<<endl; exit(1); }
+            //if (!Utility::encryptSessionMessage(plaintext_len, K, plaintext, ciphertext, outlen, cipherlen)){ cerr<<"ERR: Error while encrypting"<<endl; exit(1); }
             if (cipherlen > GENERAL_MSG_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
             if (1 + (unsigned long)msg < 1) { cerr<<"ERR: Wrap around."<<endl; exit(1); }
             memcpy(msg+1, ciphertext, cipherlen);
@@ -1080,4 +1167,58 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             }
         }
     }
+}
+
+void SecureChatClient::setCounters(unsigned char* iv){
+    Utility::secure_thread_memcpy((unsigned char*)&this->server_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
+    Utility::secure_thread_memcpy((unsigned char*)&this->user_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
+    Utility::secure_thread_memcpy((unsigned char*)&this->base_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
+    memset((unsigned char*)(&this->server_counter)+12, 0, 4);
+    memset((unsigned char*)(&this->user_counter)+12, 0, 4);
+    memset((unsigned char*)(&this->base_counter)+12, 0, 4);
+}
+
+void SecureChatClient::incrementCounter(int counter){
+    //counter = 0 -> server, counter = 1 -> user
+    if (counter == 0){
+        this->server_counter++;
+        memset((unsigned char*)(&this->server_counter)+12, 0, 4);
+        return;
+    }
+    if (counter == 1){
+        this->user_counter++;
+        memset((unsigned char*)(&this->user_counter)+12, 0, 4);
+        return;
+    }
+    cerr<<"Bad call of the function increment counter"<<endl;
+    exit(1);
+}
+
+void SecureChatClient::checkCounter(int counter, unsigned char* received_counter_msg){
+    //counter = 0 -> server, counter = 1 -> user
+    __uint128_t received_counter;
+    Utility::secure_thread_memcpy((unsigned char*)&received_counter, 0, sizeof(__uint128_t), received_counter_msg, 0, 12, 12);
+    memset((unsigned char*)(&received_counter)+12, 0, 4);
+    if (counter == 0){
+        __uint128_t server_counter_12 = this->server_counter;
+        memset((unsigned char*)(&server_counter_12)+12, 0, 4);
+        Utility::printMessage("Correct counter: ", (unsigned char*)&server_counter_12, sizeof(__uint128_t));
+        Utility::printMessage("Received counter: ", (unsigned char*)&received_counter, sizeof(__uint128_t));
+        Utility::printMessage("Base counter: ", (unsigned char*)&this->base_counter, sizeof(__uint128_t));
+        if (server_counter_12 != received_counter || received_counter == this->base_counter){ cerr<<"Bad received server counter"<<endl; exit(1); }
+        return;
+    }
+    if (counter == 1){
+        __uint128_t user_counter_12 = this->user_counter;
+        memset((unsigned char*)(&user_counter_12)+12, 0, 4);
+        if (user_counter_12 != received_counter || received_counter == this->base_counter){ cerr<<"Bad received user counter"<<endl; exit(1); }
+        return;
+    }
+    cerr<<"Bad call of the function check counter"<<endl;
+    exit(1);
+}
+
+void SecureChatClient::storeK(unsigned char* K){
+    this->K = (unsigned char*)malloc(K_SIZE);
+    Utility::secure_memcpy(this->K, 0, K_SIZE, K, 0, K_SIZE, K_SIZE);
 }

@@ -86,6 +86,16 @@ class SecureChatServer{
 
         void handleChat(int sender_socket, int receiver_socket, string sender, string receiver);
 
+        void sendS3Message(int data_socket, unsigned char* K, unsigned char* R_user, EVP_PKEY* tpubk, unsigned char* &iv);
+
+        void setCounters(unsigned char* iv, string username);
+
+        void incrementCounter(int counter, string username);
+
+        void checkCounter(int counter, string username, unsigned char* received_counter);
+
+        void storeK(string username, unsigned char* K);
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);

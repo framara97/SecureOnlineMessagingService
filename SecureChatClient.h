@@ -8,6 +8,12 @@
 class SecureChatClient{
     private:
 
+        __uint128_t server_counter;
+        __uint128_t user_counter;
+        __uint128_t base_counter;
+
+        unsigned char* K;
+
         //Client username
         static string username;
 
@@ -66,7 +72,7 @@ class SecureChatClient{
         void verifyCertificate();
 
         //Authenticate user
-        void authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk);
+        void authenticateUser(unsigned int choice, unsigned char* R_server, EVP_PKEY* tpubk, unsigned char* &R_user);
 
         //Receive the list of available users
         string receiveAvailableUsers();
@@ -95,6 +101,15 @@ class SecureChatClient{
 
         void chat(string other_username, unsigned char* K, EVP_PKEY* peer_key);
 
+        unsigned char* receiveS3Message(unsigned char* &iv, EVP_PKEY* tprivk, unsigned char* R_user);
+
+        void setCounters(unsigned char* iv);
+
+        void incrementCounter(int counter);
+
+        void checkCounter(int counter, unsigned char* received_counter);
+
+        void storeK(unsigned char* K);
 
     public:
         //Constructor that gets the username, the server address and the server port

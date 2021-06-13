@@ -13,6 +13,12 @@
 using namespace std;
 
 struct User {
+    __uint128_t server_counter;
+    __uint128_t user_counter;
+    __uint128_t base_counter;
+
+    unsigned char* K;
+
     //Username of the user
     string username;
 

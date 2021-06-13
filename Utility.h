@@ -51,13 +51,21 @@ class Utility {
 
         static void printChatMessage(string print_message, char* buf, unsigned int len);
 
-        static bool encryptSessionMessage(int plaintext_len, unsigned char* key, unsigned char* plaintext, unsigned char* &ciphertext, int& outlen, unsigned int& cipherlen);
+        static bool encryptSessionMessage(int plaintext_len, 
+                                    unsigned char* key, unsigned char* plaintext, 
+                                    unsigned char* &ciphertext, int& outlen, 
+                                    unsigned int& cipherlen, __uint128_t counter, 
+                                    unsigned char* &tag, unsigned char* &buf,
+                                    unsigned int buf_len, unsigned int server_or_user,
+                                    unsigned int &enc_buf_len);
 
-        static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *ciphertext, unsigned int ciphertext_len, unsigned char* key, unsigned int& plaintext_len);
+        static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *msg, unsigned int msg_len, unsigned char* key, unsigned int& plaintext_len, int server_or_user, unsigned char* correct_tag);
 
         static void secure_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size);
 
         static void secure_thread_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size);
+
+        static bool compareTag(const unsigned char* tag1, const unsigned char* tag2);
 };
 
 #endif
