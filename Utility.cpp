@@ -301,56 +301,22 @@ bool Utility::encryptSessionMessage(int plaintext_len,
     ciphertext = (unsigned char*)malloc(plaintext_len+BLOCK_SIZE);
     tag = (unsigned char*)malloc(TAG_SIZE);
     memcpy(iv, &counter, GCM_IV_SIZE);
-    // Create and initialise the context
     if(!(ctx = EVP_CIPHER_CTX_new()))
         return false;
-    // Initialise the encryption operation.
     if(1 != EVP_EncryptInit(ctx, EVP_aes_128_gcm(), key, iv))
         return false;
-
-    //Provide any AAD data. This can be called zero or more times as required
     if(1 != EVP_EncryptUpdate(ctx, NULL, &len, iv, GCM_IV_SIZE))
         return false;
-
     if(1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len))
         return false;
     ciphertext_len = len;
-	//Finalize Encryption
     if(1 != EVP_EncryptFinal(ctx, ciphertext + len, &len))
         return false;
     ciphertext_len += len;
-    /* Get the tag */
     if(1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tag))
         return false;
-    /* Clean up */
     EVP_CIPHER_CTX_free(ctx);
-    /*int len = 0;
-    unsigned char* iv = (unsigned char*)malloc(GCM_IV_SIZE);
-    memcpy(iv, &counter, GCM_IV_SIZE);
-    Utility::printMessage("Sent counter: ", (unsigned char*)&counter, sizeof(__uint128_t));
-    Utility::printMessage("Sent IV: ", (unsigned char*)iv, GCM_IV_SIZE);
-    cout<<"Plaintext len: "<<plaintext_len<<endl;
-    ciphertext = (unsigned char*)malloc(plaintext_len + BLOCK_SIZE);
-    if (!ciphertext){ return false; }
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    int ret = EVP_EncryptInit(ctx, EVP_aes_128_gcm(), key, iv);
-    if(ret == 0) { return false; }
-    ret = EVP_EncryptUpdate(ctx, NULL, &outlen, iv, GCM_IV_SIZE);
-    if(ret == 0) { return false; }
-    ret = EVP_EncryptUpdate(ctx, ciphertext, &outlen, (unsigned char*)plaintext, plaintext_len);
-    if(ret == 0) { return false; }
-    if (cipherlen + outlen < cipherlen){ cerr<<"ERR: Wrap around"<<endl; return false; }
-    cipherlen = outlen;
-    ret = EVP_EncryptFinal(ctx, ciphertext + outlen, &outlen);
-    if(ret == 0) { return false; }
-    cipherlen += outlen;
-    ret = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tag);
-    if(ret == 0) { return false; }
-    EVP_CIPHER_CTX_free(ctx);*/
 
-    cout<<"Cipherlen: "<<ciphertext_len<<endl;
-    Utility::printMessage("Ciphertext: ", ciphertext, ciphertext_len);
-    Utility::printMessage("tag: ", tag, TAG_SIZE);
     enc_buf_len = ciphertext_len + GCM_IV_SIZE + TAG_SIZE;
     if (server_or_user == 0){ //server
         Utility::secure_thread_memcpy(buf, 0, buf_len, iv, 0, GCM_IV_SIZE, GCM_IV_SIZE);
@@ -369,8 +335,7 @@ bool Utility::encryptSessionMessage(int plaintext_len,
     return false;
 }
 
-bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *msg, unsigned int msg_len, unsigned char* key, unsigned int& plaintext_len, int server_or_user, unsigned char* correct_tag){
-    Utility::printMessage("Message received: ", msg, msg_len);
+bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *msg, unsigned int msg_len, unsigned char* key, unsigned int& plaintext_len, int server_or_user){
     const EVP_CIPHER* cipher = EVP_aes_128_gcm();
     unsigned char* iv = (unsigned char*)malloc(GCM_IV_SIZE);
     if (!iv){ return false;}
@@ -393,65 +358,24 @@ bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *ms
         Utility::secure_memcpy(ciphertext, 0, ciphertext_len, msg, GCM_IV_SIZE, msg_len, ciphertext_len);
         Utility::secure_memcpy(tag, 0, TAG_SIZE, msg, tag_index, msg_len, TAG_SIZE);
     }
-
-    /*int outlen;
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    Utility::printMessage("IV: ", iv, GCM_IV_SIZE);
-    Utility::printMessage("Ciphertext: ", ciphertext, cipherlen);
-    Utility::printMessage("tag: ", tag, TAG_SIZE);
-    unsigned int ret = EVP_DecryptInit(ctx, cipher, key, iv);
-    if(ret == 0) { return false; }
-    ret = EVP_DecryptUpdate(ctx, NULL, &outlen, iv, GCM_IV_SIZE);
-    if (ret == 0){ return false;}
-    ret = EVP_DecryptUpdate(ctx, plaintext, &outlen, ciphertext, cipherlen);
-    if(ret == 0) { return false; }
-    if (plaintext_len + outlen < plaintext_len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    plaintext_len = outlen;
-    unsigned char* correct_tag;
-    correct_tag = (unsigned char*)malloc(TAG_SIZE);
-    if (!correct_tag){ return false; }
-    ret = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 16, correct_tag);
-    if(ret == 0) { return false; }
-    ret = EVP_DecryptFinal(ctx, plaintext + outlen, &outlen);
-    cout<<"Ret: "<<ret<<endl;
-    if(ret == 0) { return false; }
-    cout<<"Print7"<<endl;
-    plaintext_len += outlen;
-    EVP_CIPHER_CTX_free(ctx);*/
     
     EVP_CIPHER_CTX *ctx;
     int len;
     int ret;
-    /* Create and initialise the context */
     if(!(ctx = EVP_CIPHER_CTX_new()))
         return false;
     if(!EVP_DecryptInit(ctx, EVP_aes_128_gcm(), key, iv))
         return false;
-	//Provide any AAD data.
     if(!EVP_DecryptUpdate(ctx, NULL, &len, iv, GCM_IV_SIZE))
         return false;
-	//Provide the message to be decrypted, and obtain the plaintext output.
     if(!EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len))
         return false;
     plaintext_len = len;
-    /* Set expected tag value. Works in OpenSSL 1.0.1d and later */
-    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 12, correct_tag))
+    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 16, tag))
         return false;
-    /*
-     * Finalise the decryption. A positive return value indicates success,
-     * anything else is a failure - the plaintext is not trustworthy.
-     */
     ret = EVP_DecryptFinal(ctx, plaintext + len, &len);
 
-    Utility::printMessage("Tag: ", tag, TAG_SIZE);
-    Utility::printMessage("Correct tag: ", correct_tag, TAG_SIZE);
-
-    /* Clean up */
     EVP_CIPHER_CTX_cleanup(ctx);
-
-    if (compareTag(tag, correct_tag) == false){
-        return false;
-    }
     return true;
 }
 

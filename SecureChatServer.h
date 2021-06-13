@@ -71,14 +71,14 @@ class SecureChatServer{
         void forwardResponse(string sender_username, string username, unsigned int response);
 
         //Send user public key to the users that want to communicate
-        void sendUserPubKey(string username, int data_socket);
+        void sendUserPubKey(string username, int data_socket, string key_receiver);
 
         //Receive a logout message
         void checkLogout(int data_socket, int other_socket, char* msg, unsigned int buffer_len, unsigned int auth_required, string username, string other_username);
 
-        void receive(int data_socket, string username, unsigned int &len, char* msg, const unsigned int max_size);
+        void receive(int data_socket, string username, unsigned int &len, unsigned char* &msg, const unsigned int max_size);
 
-        void forward(string username, char* msg, unsigned int len);
+        void forward(string username, unsigned char* msg, unsigned int len);
 
         void wait(string username);
 

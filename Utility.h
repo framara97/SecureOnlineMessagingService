@@ -59,7 +59,7 @@ class Utility {
                                     unsigned int buf_len, unsigned int server_or_user,
                                     unsigned int &enc_buf_len);
 
-        static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *msg, unsigned int msg_len, unsigned char* key, unsigned int& plaintext_len, int server_or_user, unsigned char* correct_tag);
+        static bool decryptSessionMessage(unsigned char* &plaintext, unsigned char *msg, unsigned int msg_len, unsigned char* key, unsigned int& plaintext_len, int server_or_user);
 
         static void secure_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size);
 

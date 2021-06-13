@@ -12,7 +12,12 @@ class SecureChatClient{
         __uint128_t user_counter;
         __uint128_t base_counter;
 
+        __uint128_t chat_peer_counter;
+        __uint128_t chat_my_counter;
+        __uint128_t chat_base_counter;
+
         unsigned char* K;
+        unsigned char* chat_K;
 
         //Client username
         static string username;
@@ -109,7 +114,15 @@ class SecureChatClient{
 
         void checkCounter(int counter, unsigned char* received_counter);
 
+        void setChatCounters(unsigned char* iv);
+
+        void incrementChatCounter(int counter);
+
+        void checkChatCounter(int counter, unsigned char* received_counter);
+
         void storeK(unsigned char* K);
+
+        void storeChatK(unsigned char* K);
 
     public:
         //Constructor that gets the username, the server address and the server port

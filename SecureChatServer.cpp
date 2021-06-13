@@ -227,16 +227,19 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         |* Send the list of users that are available to receive       *|
         \* ---------------------------------------------------------- */
         sendAvailableUsers(data_socket, username);
+        cout<<"Thread "<<gettid()<<": Available users sent to "<<username<<endl;
         
         /* ---------------------------------------------------------- *\
         |* Server's thread receive the RTT message                    *|
         \* ---------------------------------------------------------- */
         string receiver_username = receiveRTT(data_socket, username);
+        cout<<"Thread "<<gettid()<<": RTT received from "<<username<<endl;
 
         /* ---------------------------------------------------------- *\
         |* Server forwards the RTT to the final receiver              *|
         \* ---------------------------------------------------------- */
         changeUserStatus(receiver_username, 0, 0);
+        cout<<"Thread "<<gettid()<<": Changed status of user "<<receiver_username<<endl;
         forwardRTT(receiver_username, username);
 
         /* ---------------------------------------------------------- *\
@@ -269,6 +272,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         \* ---------------------------------------------------------- */
         unsigned int response;
         string sender_username = receiveResponse(data_socket, username, response);
+        cout<<"Thread "<<gettid()<<": Response received from "<<username<<endl;
 
         /* ---------------------------------------------------------- *\
         |* Server forwards the response to the sender                 *|
@@ -290,11 +294,12 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string sender, string receiver){
-     /* ---------------------------------------------------------- *\
+     /* ----------------------------------------------------------*\
     |* Server sends receiver public key to the sender user        *|
     \* ---------------------------------------------------------- */
-    sendUserPubKey(receiver, sender_socket);
-    sendUserPubKey(sender, receiver_socket);
+    sendUserPubKey(receiver, sender_socket, sender);
+    sendUserPubKey(sender, receiver_socket, receiver);
+    cout<<"Thread "<<gettid()<<": Public key sent "<<endl;
 
     /* ---------------------------------------------------------- *\
     |* *************************   M1   ************************* *|
@@ -305,15 +310,16 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     /* ---------------------------------------------------------- *\
     |* Server receives the message M1 from the sender user        *|
     \* ---------------------------------------------------------- */
-    char m1[M1_SIZE];
+    unsigned char* m1;
     unsigned int len;
     receive(sender_socket, sender, len, m1, M1_SIZE);
+    cout<<"Thread "<<gettid()<<": M1 received from "<<sender<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M1 to the receiver user        *|
     \* ---------------------------------------------------------- */
     forward(receiver, m1, len);
-    cout<<"Thread "<<gettid()<<": M1 message sent from "<<sender<<" to "<<receiver<<endl;
+    cout<<"Thread "<<gettid()<<": M1 message forwarded from "<<sender<<" to "<<receiver<<endl;
 
     /* ---------------------------------------------------------- *\
     |* *************************   M2   ************************* *|
@@ -323,14 +329,15 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     /* ---------------------------------------------------------- *\
     |* Server receives the message M2 from the receiver user      *|
     \* ---------------------------------------------------------- */
-    char m2[M2_SIZE];
+    unsigned char* m2;
     receive(receiver_socket, receiver, len, m2, M2_SIZE);
+    cout<<"Thread "<<gettid()<<": M2 received from "<<receiver<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M2 to the sender user          *|
     \* ---------------------------------------------------------- */
     forward(sender, m2, len);
-    cout<<"Thread "<<gettid()<<": M2 message sent from "<<receiver<<" to "<<sender<<endl;
+    cout<<"Thread "<<gettid()<<": M2 message forwarded from "<<receiver<<" to "<<sender<<endl;
 
     /* ------------------------------------------------------------------------------------ *\
     |* **********************************   M3   ****************************************** *|
@@ -341,14 +348,15 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
     /* ---------------------------------------------------------- *\
     |* Server receives the message M3 from the sender user        *|
     \* ---------------------------------------------------------- */
-    char m3[M3_SIZE];
+    unsigned char *m3;
     receive(sender_socket, sender, len, m3, M3_SIZE);
+    cout<<"Thread "<<gettid()<<": M3 received from "<<sender<<endl;
 
     /* ---------------------------------------------------------- *\
     |* Server forwards the message M3 to the receiver user        *|
     \* ---------------------------------------------------------- */
     forward(receiver, m3, len);
-    cout<<"Thread "<<gettid()<<": M3 message sent from "<<sender<<" to "<<receiver<<endl;
+    cout<<"Thread "<<gettid()<<": M3 message forwarded from "<<sender<<" to "<<receiver<<endl;
     
     fd_set master, copy;
     FD_ZERO(&master);
@@ -365,17 +373,17 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
         |* Read the server private key                                *|
         \* ---------------------------------------------------------- */
 		if (FD_ISSET(sender_socket, &copy)){
-            char msg[GENERAL_MSG_SIZE];
+            unsigned char* msg;
             unsigned int len;
             receive(sender_socket, sender, len, msg, GENERAL_MSG_SIZE);
-            checkLogout(sender_socket, receiver_socket, msg, len, 1, sender, receiver);
+            checkLogout(sender_socket, receiver_socket, (char*)msg, len, 1, sender, receiver);
             forward(receiver, msg, len);
         }
         if (FD_ISSET(receiver_socket, &copy)){
-            char msg[GENERAL_MSG_SIZE];
+            unsigned char* msg;
             unsigned int len;
             receive(receiver_socket, receiver, len, msg, GENERAL_MSG_SIZE);
-            checkLogout(receiver_socket, sender_socket, msg, len, 1, receiver, sender);
+            checkLogout(receiver_socket, sender_socket, (char*)msg, len, 1, receiver, sender);
             forward(sender, msg, len);
         }
     }
@@ -474,7 +482,7 @@ void SecureChatServer::sendS3Message(int data_socket, unsigned char* K, unsigned
 |* another user.                                              *|
 |*                                                            *|
 \* ---------------------------------------------------------- */
-void SecureChatServer::sendUserPubKey(string username, int data_socket){
+void SecureChatServer::sendUserPubKey(string username, int data_socket, string key_receiver){
 
     char buf[PUBKEY_MSG_SIZE];
     char* pubkey_buf = NULL;
@@ -496,23 +504,21 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket){
     BIO_free(mbio);
 
     /* ---------------------------------------------------------- *\
-    |* Sign the message                                           *|
+    |* Encrypt and send the message.                              *|
     \* ---------------------------------------------------------- */
-    unsigned char* signature;
-    unsigned int signature_len;
-    Utility::signMessage(server_prvkey, buf, len, &signature, &signature_len);
-
-    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    if (len + signature_len > PUBKEY_MSG_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
-    if (len + (unsigned long)buf < len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int msg_len = len + signature_len;
-    memcpy(buf+len, signature, signature_len);
-	
-    /* ---------------------------------------------------------- *\
-    |* Send the message                                           *|
-    \* ---------------------------------------------------------- */
-	if (send(data_socket, buf, msg_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the sendto of the message containing the public key to "<<username<<endl;
+    incrementCounter(0, key_receiver);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = PUBKEY_MSG_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(len, (*users).at(key_receiver).K, (unsigned char*)buf, ciphertext, outlen, cipherlen, (*users).at(key_receiver).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
 		pthread_exit(NULL);
 	}
 	return;
@@ -546,11 +552,11 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
     /* ---------------------------------------------------------- *\
     |* Extract the fields from the message                        *|
     \* ---------------------------------------------------------- */
-    unsigned int tpubk_len_index = 1 + 2*R_SIZE;
+    unsigned int tpubk_len_index = 1 + R_SIZE;
     long tpubk_len;
     Utility::secure_thread_memcpy((unsigned char*)&tpubk_len, 0, sizeof(long), (unsigned char*)buf, tpubk_len_index, S2_SIZE, sizeof(long));
     unsigned int username_index = 1 + 2*R_SIZE + sizeof(long) + tpubk_len;
-    unsigned int signed_msg_len = username_index;
+    unsigned int signed_msg_len = 1 + R_SIZE + sizeof(long) + tpubk_len;
     unsigned int username_len = buf[username_index];
     if (1 + username_index < 1){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     username_index++;
@@ -567,6 +573,8 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
     clear_message_len -= 2; //TODO: controllare
     if(clear_message_len < username_len) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     clear_message_len -= username_len;
+    if(clear_message_len < R_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    clear_message_len -= R_SIZE;
 
     /* ---------------------------------------------------------- *\
     |* Verify the authenticity of the message                     *|
@@ -591,11 +599,11 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
     |* Analyze the content of the plaintext                       *|
     \* ---------------------------------------------------------- */
 
-    Utility::secure_thread_memcpy(R_user, 0, R_SIZE, (unsigned char*)buf, 1+R_SIZE, len, R_SIZE);
+    Utility::secure_thread_memcpy(R_user, 0, R_SIZE, (unsigned char*)buf, 1+R_SIZE+sizeof(long)+tpubk_len, len, R_SIZE);
     /* ---------------------------------------------------------- *\
     |* Read the TpubK                                             *|
     \* ---------------------------------------------------------- */
-    unsigned int tpubk_index = 1 + 2*R_SIZE + sizeof(long); 
+    unsigned int tpubk_index = 1 + R_SIZE + sizeof(long); 
     BIO* mbio = BIO_new(BIO_s_mem());
     if(tpubk_index + (unsigned long)buf < tpubk_index ) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
     BIO_write(mbio, buf + tpubk_index, tpubk_len);
@@ -658,15 +666,18 @@ void SecureChatServer::checkCounter(int counter, string username, unsigned char*
     if (counter == 0){
         __uint128_t server_counter_12 = (*users).at(username).server_counter;
         memset((unsigned char*)(&server_counter_12)+12, 0, 4);
+        Utility::printMessage("Actual counter: ", (unsigned char*)&server_counter_12, sizeof(__uint128_t));
         if (server_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ cerr<<"Bad received server counter"<<endl; pthread_exit(NULL); }
         return;
     }
     if (counter == 1){
         __uint128_t user_counter_12 = (*users).at(username).user_counter;
         memset((unsigned char*)(&user_counter_12)+12, 0, 4);
+        Utility::printMessage("Actual counter: ", (unsigned char*)&user_counter_12, sizeof(__uint128_t));
         if (user_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ cerr<<"Bad received user counter"<<endl; pthread_exit(NULL); }
         return;
     }
+    
     cerr<<"Bad call of the function check counter"<<endl;
     pthread_exit(NULL);
 }
@@ -736,19 +747,16 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
     |* Encrypt and send the message.                              *|
     \* ---------------------------------------------------------- */
     incrementCounter(0, username);
-    Utility::printMessage("Base counter: ", (unsigned char*)&(*users).at(username).base_counter, sizeof(__uint128_t));
     unsigned char* ciphertext, *tag, *enc_buf;
     int outlen;
     unsigned int cipherlen;
-    unsigned int enc_buf_max_len = 2 + available.size()*(USERNAME_MAX_SIZE+1) + TAG_SIZE + BLOCK_SIZE + GCM_IV_SIZE;
+    unsigned int enc_buf_max_len = 2 + available.size()*(USERNAME_MAX_SIZE+1) + ENC_FIELDS;
     unsigned int enc_buf_len;
     enc_buf = (unsigned char*)malloc(enc_buf_max_len);
     if (Utility::encryptSessionMessage(len, (*users).at(username).K, (unsigned char*)buf, ciphertext, outlen, cipherlen, (*users).at(username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
         cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
         pthread_exit(NULL);
     };
-    cout<<"Enc buf len: "<<enc_buf_len<<endl;
-    Utility::printMessage("Sent message: ", enc_buf, enc_buf_len);
     if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
 		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
 		pthread_exit(NULL);
@@ -761,45 +769,30 @@ void SecureChatServer::sendAvailableUsers(int data_socket, string username){
 |*                                                            *|
 \* ---------------------------------------------------------- */
 string SecureChatServer::receiveRTT(int data_socket, string username){
-    sleep(3);
-    char* buf = (char*)malloc(RTT_MAX_SIZE);
-    if (!buf){
-        cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl;
-        pthread_exit(NULL);
-    }
+    char* enc_buf = (char*)malloc(RTT_MAX_SIZE+ENC_FIELDS);
+    if (!enc_buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int len = recv(data_socket, (void*)enc_buf, AVAILABLE_USER_MAX_SIZE+ENC_FIELDS, 0);
+    if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl; pthread_exit(NULL); }
 
-    unsigned int len = recv(data_socket, (void*)buf, RTT_MAX_SIZE, 0);
-    if (len < 0){
-        cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl;
+    unsigned char* buf = (unsigned char*)malloc(RTT_MAX_SIZE);
+    if (!buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int buf_len;
+    incrementCounter(1, username);
+    checkCounter(1, username, (unsigned char*)enc_buf);
+    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, (*users).at(username).K, buf_len, 0) == false){
+        cerr<<"ERR: Error while decrypting"<<endl;
         pthread_exit(NULL);
-    }
+    };
 
-    checkLogout(data_socket, 0, buf, len, 1, username, "");
+    //checkLogout(data_socket, 0, (char*)buf, len, 1, username, "");
 
     unsigned int message_type = buf[0];
     if (message_type != 3){ cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'RTT type'."<<endl; pthread_exit(NULL); }
     unsigned int receiver_username_len = buf[1];
     if (receiver_username_len > USERNAME_MAX_SIZE){ cerr<<"Thread "<<gettid()<<": Receiver Username length is over the upper bound."<<endl; }
     string receiver_username;
-    if (receiver_username_len + 2 < receiver_username_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int clear_message_len = receiver_username_len + 2;
-    if (clear_message_len >= RTT_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; pthread_exit(NULL); }
-    receiver_username.append(buf+2, receiver_username_len);
-
-    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
-    if (!signature){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
-    if (clear_message_len + (unsigned long)buf < clear_message_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
-
-    char* clear_message = (char*)malloc(clear_message_len);
-    if (!clear_message){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
-    memcpy(clear_message, buf, clear_message_len);
-    EVP_PKEY* pubkey = getUserKey(username);
-
-    if(Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
-        cerr<<"Thread "<<gettid()<<": Authentication error"<<endl;
-        pthread_exit(NULL);
-    }
+    if ((unsigned long)buf + 2 < 2){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
+    receiver_username.append((char*)buf+2, receiver_username_len);
 
     return receiver_username;
 }
@@ -819,35 +812,49 @@ void SecureChatServer::forwardRTT(string receiver_username, string sender_userna
     if (2 + (unsigned long)msg < 2){ cerr<<"Wrap around"<<endl; exit(1); }
     memcpy((msg+2), sender_username.c_str(), sender_username_len);
 
-    unsigned char* signature;
-    unsigned int signature_len;
-    Utility::signMessage(server_prvkey, msg, len, &signature, &signature_len);
-
-    if (len + (unsigned long)msg < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    if (len + signature_len < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    unsigned int msg_len = len + signature_len;
-    if (msg_len >= RTT_MAX_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
-    memcpy(msg + len, signature, signature_len);
-    
-    unsigned int ret = send(data_socket, msg, msg_len, 0);
-    if (ret < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the forward of the RTT with error "<<ret<<endl;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(0, receiver_username);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = 2 + sender_username_len + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(len, (*users).at(receiver_username).K, (unsigned char*)msg, ciphertext, outlen, cipherlen, (*users).at(receiver_username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
 		pthread_exit(NULL);
 	}
+    
     cout<<"Thread "<<gettid()<<": RTT message sent from "<<sender_username<<" to "<<receiver_username<<endl;
 }
 
 string SecureChatServer::receiveResponse(int data_socket, string receiver_username, unsigned int &response){
+    char* enc_buf = (char*)malloc(RESPONSE_MAX_SIZE+ENC_FIELDS);
+    if (!enc_buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int len = recv(data_socket, (void*)enc_buf, AVAILABLE_USER_MAX_SIZE+ENC_FIELDS, 0);
+    if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving the RTT message"<<endl; pthread_exit(NULL); }
+
+    unsigned char* buf = (unsigned char*)malloc(RESPONSE_MAX_SIZE);
+    if (!buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int buf_len;
+    incrementCounter(1, receiver_username);
+    checkCounter(1, receiver_username, (unsigned char*)enc_buf);
+    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, (*users).at(receiver_username).K, buf_len, 0) == false){
+        cerr<<"ERR: Error while decrypting"<<endl;
+        pthread_exit(NULL);
+    };
+
     /* ------------------------------------------------------------------ *\
     |* 4 | response(1) | username_len(1) | username(MAX=16) | digest(256) *|
     \* ------------------------------------------------------------------ */
-    char* buf = (char*)malloc(RESPONSE_MAX_SIZE);
-    if (!buf){ cerr<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
 
-    unsigned int len = recv(data_socket, (void*)buf, RESPONSE_MAX_SIZE, 0);
-    if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving the Response to RTT message"<<endl; pthread_exit(NULL);}
-
-    checkLogout(data_socket, 0, buf, len, 1, receiver_username, "");
+    //checkLogout(data_socket, 0, buf, len, 1, receiver_username, "");
     unsigned int message_type = buf[0];
     if (message_type != 4){ cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'Response to RTT type'."<<endl; pthread_exit(NULL);}
 
@@ -856,26 +863,8 @@ string SecureChatServer::receiveResponse(int data_socket, string receiver_userna
     unsigned int username_len = buf[2];
 
     if (3 + (unsigned long)buf < 3){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; pthread_exit(NULL); }
-    if (3 + username_len < 3){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int clear_message_len = 3 + username_len;
-    if (clear_message_len > RESPONSE_MAX_SIZE){ cerr<<"Thread "<<gettid()<<":Access out-of-bound"<<endl; pthread_exit(NULL); }
     string sender_username;
-    sender_username.append(buf+3, username_len);
-
-    unsigned char* signature = (unsigned char*)malloc(SIGNATURE_SIZE);
-    if (!signature){ cerr<<"Thread "<<gettid()<<":There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
-    if (clear_message_len + (unsigned long)buf < clear_message_len){ cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    memcpy(signature, buf + clear_message_len, SIGNATURE_SIZE);
-
-    char* clear_message = (char*)malloc(clear_message_len);
-    if (!clear_message){ cerr<<"Thread "<<gettid()<<":There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
-    memcpy(clear_message, buf, clear_message_len);
-    EVP_PKEY* pubkey = getUserKey(receiver_username);
-
-    if(Utility::verifyMessage(pubkey, clear_message, clear_message_len, signature, SIGNATURE_SIZE) != 1) { 
-        cerr<<"Thread "<<gettid()<<": Authentication error for Response to RTT"<<endl;
-        pthread_exit(NULL);
-    }
+    sender_username.append((char*)buf+3, username_len);
 
     if ((*users).at(receiver_username).responses.count(sender_username)!=0)
         (*users).at(receiver_username).responses.at(sender_username) = response;
@@ -904,20 +893,24 @@ void SecureChatServer::forwardResponse(string sender_username, string username, 
 
     memcpy(msg+3, sender_username.c_str(), username_len);
 
-    unsigned char* signature;
-    unsigned int signature_len;
-    Utility::signMessage(server_prvkey, msg, len, &signature, &signature_len);
-
-    if (len + (unsigned long)msg < len){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; exit(1); }
-    if (len + signature_len < len){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; exit(1); }
-    unsigned int msg_len = len + signature_len;
-    if (msg_len > RESPONSE_MAX_SIZE){ cerr<<"Thread "<<gettid()<<":Access out-of-bound"<<endl; exit(1); }
-    memcpy(msg + len, signature, signature_len);
-    
-    if (send(data_socket, msg, msg_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the forward of the Response to RTT"<<endl;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(0, sender_username);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = 2 + username_len + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(len, (*users).at(sender_username).K, (unsigned char*)msg, ciphertext, outlen, cipherlen, (*users).at(sender_username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
 		pthread_exit(NULL);
-    }
+	}
 
     cout<<"Thread "<<gettid()<<": Response to RTT sent from "<<username<<" to "<<sender_username<<" with value equal to "<<response<<endl;
 }
@@ -971,34 +964,45 @@ void SecureChatServer::checkLogout(int data_socket, int other_socket, char* msg,
     }
 }
 
-void SecureChatServer::receive(int data_socket, string username, unsigned int &len, char* buf, const unsigned int max_size){
-    if (!buf){
-        cerr<<"Thread "<<gettid()<<":There is not more space in memory to allocate a new buffer"<<endl;
-        pthread_exit(NULL);
-    }
+void SecureChatServer::receive(int data_socket, string username, unsigned int &len, unsigned char* &buf, const unsigned int max_size){
+    char* enc_buf = (char*)malloc(max_size+ENC_FIELDS);
+    if (!enc_buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    len = recv(data_socket, (void*)enc_buf, max_size+ENC_FIELDS, 0);
+    if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl; pthread_exit(NULL); }
 
-    len = recv(data_socket, (void*)buf, max_size, 0);
-    if (len < 0){
-        cerr<<"Thread "<<gettid()<<": Error in receiving a message"<<endl;
+    Utility::printMessage("Receive: ", (unsigned char*)enc_buf, len);
+
+    buf = (unsigned char*)malloc(max_size);
+    if (!buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int buf_len;
+    incrementCounter(1, username);
+    checkCounter(1, username, (unsigned char*)enc_buf);
+    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, (*users).at(username).K, buf_len, 0) == false){
+        cerr<<"ERR: Error while decrypting"<<endl;
         pthread_exit(NULL);
-    } else if (len == 0) { return; }
-    /* ---------------------------------------------------------- *\
-    |* Verify message authenticity                                *|
-    \* ---------------------------------------------------------- */
-    if(len < SIGNATURE_SIZE) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    unsigned int clear_message_len = len - SIGNATURE_SIZE;
-    if ((unsigned long)buf + clear_message_len < (unsigned long)buf) { cerr<<"Wrap around"<<endl; pthread_exit(NULL); }
-    if(Utility::verifyMessage(getUserKey(username), buf, clear_message_len, (unsigned char*)((unsigned long)buf+clear_message_len), SIGNATURE_SIZE) != 1) { 
-        cerr<<"Thread "<<gettid()<<":Authentication error while receiving message"<<endl; pthread_exit(NULL);
-    }
+    };
+    len = buf_len;
 }
 
-void SecureChatServer::forward(string username, char* msg, unsigned int len){    
+void SecureChatServer::forward(string username, unsigned char* msg, unsigned int len){    
     int data_socket = (*users).at(username).socket;
-    if (send(data_socket, msg, len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<": Error in the forward of the Response to RTT"<<endl;
+    incrementCounter(0, username);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = len + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(len, (*users).at(username).K, (unsigned char*)msg, ciphertext, outlen, cipherlen, (*users).at(username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
 		pthread_exit(NULL);
-    }
+	}
+
+    Utility::printMessage("Forward: ", (unsigned char*)enc_buf, enc_buf_len);
 }
 
 /* ---------------------------------------------------------- *\
