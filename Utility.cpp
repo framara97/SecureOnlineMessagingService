@@ -380,23 +380,23 @@ bool Utility::decryptSessionMessage(unsigned char* &plaintext, unsigned char *ms
 }
 
 void Utility::secure_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size){
-    if (buf_index + (unsigned long)buf < buf_index){ cerr<<"ERR: Wrap around.1"<<endl; exit(1); }
-    if (buf_index + cpy_size < buf_index){ cerr<<"ERR: Wrap around.2"<<endl; exit(1); }
-    if (buf_index + cpy_size > buf_len){ cerr<<"ERR: Access-out-bound.3"<<endl; exit(1); }
-    if (source_index + cpy_size < source_index){ cerr<<"ERR: Wrap around.4"<<endl; exit(1); }
-    if (source_index + cpy_size > source_len){ cerr<<"ERR: Access-out-bound.5"<<endl; exit(1); }
-    if (source_index + (unsigned long)source < source_index){ cerr<<"ERR: Wrap around.6"<<endl; exit(1); }
+    if (buf_index + (unsigned long)buf < buf_index){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
+    if (buf_index + cpy_size < buf_index){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
+    if (buf_index + cpy_size > buf_len){ cerr<<"ERR: Access-out-bound."<<endl; exit(1); }
+    if (source_index + cpy_size < source_index){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
+    if (source_index + cpy_size > source_len){ cerr<<"ERR: Access-out-bound."<<endl; exit(1); }
+    if (source_index + (unsigned long)source < source_index){ cerr<<"ERR: Wrap around."<<endl; exit(1); }
 
     memcpy(buf+buf_index, source+source_index, cpy_size);
 }
 
 void Utility::secure_thread_memcpy(unsigned char* buf, unsigned int buf_index, unsigned int buf_len, unsigned char* source, unsigned int source_index, unsigned int source_len, unsigned int cpy_size){
-    if (buf_index + (unsigned long)buf < buf_index){ cerr<<"ERR: Wrap around.1"<<endl; pthread_exit(NULL); }
-    if (buf_index + cpy_size < buf_index){ cerr<<"ERR: Wrap around.2"<<endl; pthread_exit(NULL); }
-    if (buf_index + cpy_size > buf_len){ cerr<<"ERR: Access-out-bound.3"<<endl; pthread_exit(NULL); }
-    if (source_index + cpy_size < source_index){ cerr<<"ERR: Wrap around.4"<<endl; pthread_exit(NULL); }
-    if (source_index + cpy_size > source_len){ cerr<<"ERR: Access-out-bound.5"<<endl; pthread_exit(NULL); }
-    if (source_index + (unsigned long)source < source_index){ cerr<<"ERR: Wrap around.6"<<endl; pthread_exit(NULL); }
+    if (buf_index + (unsigned long)buf < buf_index){ cerr<<"ERR: Wrap around."<<endl; pthread_exit(NULL); }
+    if (buf_index + cpy_size < buf_index){ cerr<<"ERR: Wrap around."<<endl; pthread_exit(NULL); }
+    if (buf_index + cpy_size > buf_len){ cerr<<"ERR: Access-out-bound."<<endl; pthread_exit(NULL); }
+    if (source_index + cpy_size < source_index){ cerr<<"ERR: Wrap around."<<endl; pthread_exit(NULL); }
+    if (source_index + cpy_size > source_len){ cerr<<"ERR: Access-out-bound."<<endl; pthread_exit(NULL); }
+    if (source_index + (unsigned long)source < source_index){ cerr<<"ERR: Wrap around."<<endl; pthread_exit(NULL); }
 
     memcpy(buf+buf_index, source+source_index, cpy_size);
 }
