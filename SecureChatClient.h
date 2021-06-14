@@ -25,9 +25,6 @@ class SecureChatClient{
         //Client choice
         static unsigned int choice;
 
-        //Logout nonce
-        static unsigned char logout_nonce[NONCE_SIZE];
-
         //Client private key
         static EVP_PKEY* client_prvkey;
 
@@ -95,7 +92,7 @@ class SecureChatClient{
         unsigned int waitForResponse();
 
         //User logout
-        void logout(unsigned int authenticated);
+        void logout();
 
         //encryption algorithm (AES_256)
         //int encrypt(unsigned char *plaintext, int plaintext_len, unsigned char *key, unsigned char *iv, unsigned char *ciphertext);

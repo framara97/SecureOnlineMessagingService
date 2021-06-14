@@ -144,7 +144,7 @@ bool Utility::isNumeric(string str){
 
 EVP_PKEY* Utility::generateTprivK(string username){
     pid_t pid;
-    char* argv1[5] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
+    char* argv1[7] = {strdup("genrsa"), strdup("-out"), strdup(""), strdup("3072"), NULL};
     EVP_PKEY* tprivk;
     string tprivk_path = "./client/" + username + "/tprivk.pem";
     argv1[2] = (char*)malloc(tprivk_path.length()+1);
@@ -167,7 +167,7 @@ EVP_PKEY* Utility::generateTpubK(string username){
     string tprivk_path = "./client/" + username + "/tprivk.pem";
     pid_t pid;
     string tpubk_path = "./client/" + username + "/tpubk.pem";
-    char* argv2[7] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
+    char* argv2[9] = {strdup("rsa"), strdup("-pubout"), strdup("-in"), strdup(""), strdup("-out"), strdup(""), NULL};
     argv2[3] = (char*)malloc(tprivk_path.length()+1);
     if (!argv2[3]){ cerr<<"ERR: Malloc didn't work"<<endl; exit(1); }
     strncpy(argv2[3], tprivk_path.c_str(), tprivk_path.length());
