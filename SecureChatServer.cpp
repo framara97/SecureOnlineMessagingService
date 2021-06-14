@@ -911,11 +911,8 @@ void SecureChatServer::forwardResponse(string sender_username, string username, 
 
     if (3 + username_len < 3){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; exit(1); }
     unsigned int len = 3 + username_len;
-    if (len > RESPONSE_MAX_SIZE){ cerr<<"Thread "<<gettid()<<":Access out-of-bound"<<endl; exit(1); }
-    if (3 + (unsigned long)msg < 3){ cerr<<"Thread "<<gettid()<<":Wrap around"<<endl; exit(1); }
 
-    memcpy(msg+3, sender_username.c_str(), username_len);
-
+    Utility::secure_thread_memcpy((unsigned char*)msg, 3, RESPONSE_MAX_SIZE, (unsigned char*)sender_username.c_str(), 0, username_len, username_len);
     /* ---------------------------------------------------------- *\
     |* Encrypt and send the message.                              *|
     \* ---------------------------------------------------------- */
