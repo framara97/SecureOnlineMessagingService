@@ -204,9 +204,6 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     \* ---------------------------------------------------------- */
     printUserList();
 
-    //TODO: generare K e inviare S3
-    //S3 = nonce_user firmato,  E(tpubk,K), IV e encrypted key in chiaro
-
     /* ---------------------------------------------------------- *\
     |* Create K                                                   *|
     \* ---------------------------------------------------------- */
@@ -244,6 +241,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         changeUserStatus(receiver_username, 0, 0);
         cout<<"Thread "<<gettid()<<": Changed status of user "<<receiver_username<<endl;
         forwardRTT(receiver_username, username);
+        cout<<"Thread "<<gettid()<<": RTT forwarded to "<<receiver_username<<endl;
 
         /* ---------------------------------------------------------- *\
         |* Wait on the condition variable of the receiver             *|
@@ -281,7 +279,11 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         |* Server forwards the response to the sender                 *|
         \* ---------------------------------------------------------- */
         forwardResponse(sender_username, username, response);
+        cout<<"Thread "<<gettid()<<": Response forwarded to "<<sender_username<<endl;
 
+        /* ---------------------------------------------------------- *\
+        |* If request has been refused, all the sockets are closed.   *|
+        \* ---------------------------------------------------------- */
         if (response == 0){
             close(data_socket);
             close((*users).at(sender_username).socket);

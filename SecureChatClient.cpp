@@ -315,7 +315,7 @@ void SecureChatClient::authenticateUser(unsigned int choice, unsigned char* R_se
     if (username.length() >= USERNAME_MAX_SIZE){ cerr<<"ERR: Username length too large."<<endl; exit(1); }
 
     /* ------------------------------------------------------------------------------- *\
-    |*0/1| nonce_server(16) | nonce_user(16) | tpubk(451) | username_len(1) | username(MAX=16) | signature(256)*|
+    |*0/1| nonce_server(16) | pubkey_size | tpubk(451) | nonce_user(16) | username_len(1) | username(MAX=16) | signature(256)*|
     \* ------------------------------------------------------------------------------- */
     char msg[S2_SIZE];
     /* ---------------------------------------------------------- *\
