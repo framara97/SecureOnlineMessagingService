@@ -190,6 +190,9 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     string username = receiveAuthentication(data_socket, status, R_server, R_user, tpubk);
     cout<<"Thread "<<gettid()<<": Message S2 received"<<endl;
 
+    pthread_mutex_destroy(&(*users).at(username).user_mutex);
+    pthread_mutex_init(&(*users).at(username).user_mutex, NULL);
+
     /* ---------------------------------------------------------- *\
     |* Change user status to 1 if the user is available to        *|
     |* receive a message                                          *|
@@ -280,7 +283,6 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
         forwardResponse(sender_username, username, response);
 
         if (response == 0){
-            //pthread_mutex_unlock(&(*users).at(sender_username).user_mutex);
             close(data_socket);
             close((*users).at(sender_username).socket);
         }
@@ -632,32 +634,38 @@ string SecureChatServer::receiveAuthentication(int data_socket, unsigned int &st
 |*                                                            *|
 \* ---------------------------------------------------------- */
 void SecureChatServer::changeUserStatus(string username, unsigned int status, int user_socket){
-    //pthread_mutex_lock(&(*users).at(username).user_mutex);
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
     (*users).at(username).status = status;
     if (user_socket != 0)
         (*users).at(username).socket = user_socket;
-    //pthread_mutex_unlock(&(*users).at(username).user_mutex);
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
 }
 
 void SecureChatServer::setCounters(unsigned char* iv, string username){
+    pthread_mutex_lock(&(*users).at(username).user_mutex);
     Utility::secure_thread_memcpy((unsigned char*)&(*users).at(username).server_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
     Utility::secure_thread_memcpy((unsigned char*)&(*users).at(username).user_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
     Utility::secure_thread_memcpy((unsigned char*)&(*users).at(username).base_counter, 0, sizeof(__uint128_t), iv, 0, EVP_CIPHER_iv_length(EVP_aes_256_cbc()), sizeof(__uint128_t));
     memset((unsigned char*)(&(*users).at(username).server_counter)+12, 0, 4);
     memset((unsigned char*)(&(*users).at(username).user_counter)+12, 0, 4);
     memset((unsigned char*)(&(*users).at(username).base_counter)+12, 0, 4);
+    pthread_mutex_unlock(&(*users).at(username).user_mutex);
 }
 
 void SecureChatServer::incrementCounter(int counter, string username){
     //counter = 0 -> server, counter = 1 -> user
     if (counter == 0){
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
         (*users).at(username).server_counter++;
         memset((unsigned char*)(&(*users).at(username).server_counter)+12, 0, 4);
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
         return;
     }
     if (counter == 1){
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
         (*users).at(username).user_counter++;
         memset((unsigned char*)(&(*users).at(username).user_counter)+12, 0, 4);
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
         return;
     }
     cerr<<"Bad call of the function increment counter"<<endl;
@@ -670,15 +678,19 @@ void SecureChatServer::checkCounter(int counter, string username, unsigned char*
     Utility::secure_thread_memcpy((unsigned char*)&received_counter, 0, sizeof(__uint128_t), received_counter_msg, 0, 12, 12);
     memset((unsigned char*)(&received_counter)+12, 0, 4);
     if (counter == 0){
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
         __uint128_t server_counter_12 = (*users).at(username).server_counter;
         memset((unsigned char*)(&server_counter_12)+12, 0, 4);
-        if (server_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ cerr<<"Bad received server counter"<<endl; pthread_exit(NULL); }
+        if (server_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ pthread_mutex_unlock(&(*users).at(username).user_mutex); cerr<<"Bad received server counter"<<endl; pthread_exit(NULL); }
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
         return;
     }
     if (counter == 1){
+        pthread_mutex_lock(&(*users).at(username).user_mutex);
         __uint128_t user_counter_12 = (*users).at(username).user_counter;
         memset((unsigned char*)(&user_counter_12)+12, 0, 4);
-        if (user_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ cerr<<"Bad received user counter"<<endl; pthread_exit(NULL); }
+        if (user_counter_12 != received_counter || received_counter == (*users).at(username).base_counter){ pthread_mutex_unlock(&(*users).at(username).user_mutex); cerr<<"Bad received user counter"<<endl; pthread_exit(NULL); }
+        pthread_mutex_unlock(&(*users).at(username).user_mutex);
         return;
     }
     

@@ -13,6 +13,7 @@
         "string_view": "cpp",
         "condition_variable": "cpp",
         "thread": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "mutex": "cpp"
     }
 }
