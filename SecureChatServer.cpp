@@ -725,11 +725,9 @@ void SecureChatServer::printUserList(){
 vector<User> SecureChatServer::getOnlineUsers(){
     vector<User> v;
     for (map<string,User>::iterator it=(*users).begin(); it!=(*users).end(); ++it){
-        pthread_mutex_lock(&(it->second.user_mutex));
         if (it->second.status == 1){
             v.push_back(it->second);
         }
-        pthread_mutex_unlock(&(it->second.user_mutex));
     }
     return v;
 }
