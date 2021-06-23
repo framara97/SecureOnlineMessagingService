@@ -73,6 +73,12 @@ class SecureChatServer{
         //Send user public key to the users that want to communicate
         void sendUserPubKey(string username, int data_socket, string key_receiver);
 
+        //Receive a refresh message
+        bool checkRefresh(char* msg, unsigned int buffer_len, string username);
+
+        //Send a message to the user to return him to lobby
+        void sendBadResponse(int data_socket, string username);
+
         //Receive a logout message
         void checkLogout(int data_socket, int other_socket, char* msg, unsigned int buffer_len, string username, string other_username);
 

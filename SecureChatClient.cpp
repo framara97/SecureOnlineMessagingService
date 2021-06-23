@@ -109,76 +109,77 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     |* client wants to send a message                             *|
     \* ---------------------------------------------------------- */
     if(choice == 0){ 
-        /* ---------------------------------------------------------- *\
-        |* Print the user list and select a user to communicate with  *|
-        \* ---------------------------------------------------------- */
-        string selected_user = receiveAvailableUsers();
-        /* ---------------------------------------------------------- *\
-        |* Send request to talk to the selected user                  *|
-        \* ---------------------------------------------------------- */
-        sendRTT(selected_user);
-
-        /* ---------------------------------------------------------- *\
-        |* Wait for the answer to the previous RTT                    *|
-        \* ---------------------------------------------------------- */
-        response = waitForResponse();
-        if (response==0){
-            cout<<"Logout.."<<endl;
-            close(this->server_socket);
-            exit(0);
-        }
-
-        if(response==1){
+        while(1){
             /* ---------------------------------------------------------- *\
-            |* Wait for the selected_user public key                      *|
+            |* Print the user list and select a user to communicate with  *|
             \* ---------------------------------------------------------- */
-            peer_key = receiveUserPubKey(selected_user);
+            string selected_user = receiveAvailableUsers();
+            /* ---------------------------------------------------------- *\
+            |* Send request to talk to the selected user                  *|
+            \* ---------------------------------------------------------- */
+            sendRTT(selected_user);
 
             /* ---------------------------------------------------------- *\
-            |* Handle key establishment                                   *|
+            |* Wait for the answer to the previous RTT                    *|
             \* ---------------------------------------------------------- */
-            senderKeyEstablishment(selected_user, peer_key);
+            response = waitForResponse();
+            if (response==0){
+                cout<<"LOG: response equal to 0"<<endl;
+                continue;
+            }
+
+            if(response==1){
+                /* ---------------------------------------------------------- *\
+                |* Wait for the selected_user public key                      *|
+                \* ---------------------------------------------------------- */
+                peer_key = receiveUserPubKey(selected_user);
+
+                /* ---------------------------------------------------------- *\
+                |* Handle key establishment                                   *|
+                \* ---------------------------------------------------------- */
+                senderKeyEstablishment(selected_user, peer_key);
+            }
         }
     }
     /* ---------------------------------------------------------- *\
     |* client wants to receive a message                          *|
     \* ---------------------------------------------------------- */ 
     else if(choice == 1){ 
-        string sender_username = waitForRTT();
-        string input;
-
-        cout<<"LOG: "<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"    0: Refuse"<<endl<<"    1: Accept"<<endl;
-        cout<<"LOG: Select a choice: ";
-        cin>>input;
-        if(!cin){exit(1);}
         while(1){
-            if(input.compare("0")!=0 && input.compare("1")!=0){
-                cout<<"LOG: Choice not valid! Choose 0 or 1!"<<endl;
-                cin>>input;
-                if(!cin){exit(1);}
-            } else break;
-        }
+            string sender_username = waitForRTT();
+            string input;
 
-        response = input.c_str()[0]-'0';
+            cout<<"LOG: "<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"    0: Refuse"<<endl<<"    1: Accept"<<endl;
+            cout<<"LOG: Select a choice: ";
+            cin>>input;
+            if(!cin){exit(1);}
+            while(1){
+                if(input.compare("0")!=0 && input.compare("1")!=0){
+                    cout<<"LOG: Choice not valid! Choose 0 or 1!"<<endl;
+                    cin>>input;
+                    if(!cin){exit(1);}
+                } else break;
+            }
 
-        sendResponse(sender_username, response);
+            response = input.c_str()[0]-'0';
 
-        if (response==0){
-            cout<<"Logout.."<<endl;
-            close(this->server_socket);
-            exit(0);
-        }
+            sendResponse(sender_username, response);
 
-        if(response==1){
-            /* ---------------------------------------------------------- *\
-            |* Wait for the selected_user public key                      *|
-            \* ---------------------------------------------------------- */
-            peer_key = receiveUserPubKey(sender_username);
+            if (response==0){
+                continue;
+            }
 
-            /* ---------------------------------------------------------- *\
-            |* Handle key establishment                                   *|
-            \* ---------------------------------------------------------- */
-            receiverKeyEstablishment(sender_username, peer_key);
+            if(response==1){
+                /* ---------------------------------------------------------- *\
+                |* Wait for the selected_user public key                      *|
+                \* ---------------------------------------------------------- */
+                peer_key = receiveUserPubKey(sender_username);
+
+                /* ---------------------------------------------------------- *\
+                |* Handle key establishment                                   *|
+                \* ---------------------------------------------------------- */
+                receiverKeyEstablishment(sender_username, peer_key);
+            }
         }
     }
 };
@@ -424,7 +425,7 @@ unsigned char* SecureChatClient::receiveS3Message(unsigned char* &iv, EVP_PKEY* 
     if ((unsigned long)buf + R_SIZE < R_SIZE){ cerr<<"Wrap around"<<endl; exit(1); }
     if (len < SIGNATURE_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
     if ((unsigned long)buf + len < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    if(Utility::verifyMessage(this->server_pubkey, buf+1, R_SIZE, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
+    if(Utility::verifyMessage(this->server_pubkey, buf, len-SIGNATURE_SIZE, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
         cerr<<"ERR: Authentication error while receiving the S3 message"<<endl;
         exit(1);
     }
@@ -475,71 +476,76 @@ unsigned char* SecureChatClient::receiveS3Message(unsigned char* &iv, EVP_PKEY* 
 |*                                                            *|
 \* ---------------------------------------------------------- */
 string SecureChatClient::receiveAvailableUsers(){
-    char* enc_buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE+ENC_FIELDS);
-    if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    unsigned int len = recv(this->server_socket, (void*)enc_buf, AVAILABLE_USER_MAX_SIZE+ENC_FIELDS, 0);
-    if (len < 0){ cerr<<"ERR: Error in receiving the message containing the list of users"<<endl; exit(1); }
-
-    cout<<"Len: "<<len<<endl;
-
-    cout<<"LOG: Message containing the list of users received"<<endl;
-
-    unsigned char* buf = (unsigned char*)malloc(AVAILABLE_USER_MAX_SIZE);
-    if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    unsigned int buf_len;
-    incrementCounter(0);
-    checkCounter(0, (unsigned char*)enc_buf);
-    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1) == false){
-        cerr<<"ERR: Error while decrypting"<<endl;
-        exit(1);
-    };
-    
-    unsigned int message_type = buf[0];
-    if (message_type != 2){ cerr<<"ERR: The message type is not corresponding to 'user list'"<<endl; exit(1); }
-
-    unsigned int user_number = buf[1];
-    unsigned int current_len = 2;
-    unsigned int username_len;
-    char current_username[USERNAME_MAX_SIZE];
-
     map<unsigned int, string> users_online;
-    if (user_number < 0){ cerr<<"ERR: The number of available users is negative."<<endl; exit(1); }
-    if (user_number == 0){ 
-        cout<<"LOG: There are no available users."<<endl; 
-    } else {
-        cout<<"LOG: Online Users"<<endl;
-    }
-    for (unsigned int i = 0; i < user_number; i++){
-        if (current_len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
-        username_len = buf[current_len];
-        if (username_len >= USERNAME_MAX_SIZE){ cerr<<"ERR: The username length is too long."<<endl; exit(1); }
-        if (current_len+1 == 0){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-        current_len++;
-        Utility::secure_memcpy((unsigned char*)current_username, 0, USERNAME_MAX_SIZE, buf, current_len, AVAILABLE_USER_MAX_SIZE, username_len);
-        current_username[username_len] = '\0';
-        cout<<"    "<<i<<": "<<current_username<<endl;
-        if (username_len + current_len < username_len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-        current_len += username_len;
-        users_online.insert(pair<unsigned int, string>(i, (string)current_username));
-    }
-    cout<<"    q: Logout"<<endl;
-
     string selected;
-    cout<<"LOG: Select an option or the number corresponding to one of the users: ";
-    cin>>selected;
-    if(!cin) {exit(1);}
+    while(1){
+        char* enc_buf = (char*)malloc(AVAILABLE_USER_MAX_SIZE+ENC_FIELDS);
+        if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+        unsigned int len = recv(this->server_socket, (void*)enc_buf, AVAILABLE_USER_MAX_SIZE+ENC_FIELDS, 0);
+        if (len < 0){ cerr<<"ERR: Error in receiving the message containing the list of users"<<endl; exit(1); }
 
-    while((!Utility::isNumeric(selected) || atoi(selected.c_str()) >= user_number) && selected.compare("q") != 0){
-        cerr<<"ERR: Selection is not valid! Select another option or number: ";
+        cout<<"LOG: Message containing the list of users received"<<endl;
+
+        unsigned char* buf = (unsigned char*)malloc(AVAILABLE_USER_MAX_SIZE);
+        if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+        unsigned int buf_len;
+        incrementCounter(0);
+        checkCounter(0, (unsigned char*)enc_buf);
+        if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1) == false){
+            cerr<<"ERR: Error while decrypting"<<endl;
+            exit(1);
+        };
+        
+        unsigned int message_type = buf[0];
+        if (message_type != 2){ cerr<<"ERR: The message type is not corresponding to 'user list'"<<endl; exit(1); }
+
+        unsigned int user_number = buf[1];
+        unsigned int current_len = 2;
+        unsigned int username_len;
+        char current_username[USERNAME_MAX_SIZE];
+
+        if (user_number < 0){ cerr<<"ERR: The number of available users is negative."<<endl; exit(1); }
+        if (user_number == 0){ 
+            cout<<"LOG: There are no available users."<<endl; 
+        } else {
+            cout<<"LOG: Online Users"<<endl;
+        }
+        for (unsigned int i = 0; i < user_number; i++){
+            if (current_len >= AVAILABLE_USER_MAX_SIZE){ cerr<<"ERR: Access out-of-bound"<<endl; exit(1); }
+            username_len = buf[current_len];
+            if (username_len >= USERNAME_MAX_SIZE){ cerr<<"ERR: The username length is too long."<<endl; exit(1); }
+            if (current_len+1 == 0){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
+            current_len++;
+            Utility::secure_memcpy((unsigned char*)current_username, 0, USERNAME_MAX_SIZE, buf, current_len, AVAILABLE_USER_MAX_SIZE, username_len);
+            current_username[username_len] = '\0';
+            cout<<"    "<<i<<": "<<current_username<<endl;
+            if (username_len + current_len < username_len){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
+            current_len += username_len;
+            users_online.insert(pair<unsigned int, string>(i, (string)current_username));
+        }
+        cout<<"    q: Logout"<<endl;
+        cout<<"    r: Refresh"<<endl;
+
+        cout<<"LOG: Select an option or the number corresponding to one of the users: ";
         cin>>selected;
         if(!cin) {exit(1);}
-    }
 
-    if (selected.compare("q") == 0){
-        logout();
-        exit(0);
-    }
+        while((!Utility::isNumeric(selected) || atoi(selected.c_str()) >= user_number) && selected.compare("q") != 0 && selected.compare("r")){
+            cerr<<"ERR: Selection is not valid! Select another option or number: ";
+            cin>>selected;
+            if(!cin) {exit(1);}
+        }
 
+        if (selected.compare("q") == 0){
+            logout();
+            exit(0);
+        }
+
+        if (selected.compare("r") == 0){
+            refresh();
+            continue;
+        }
+    }
     return users_online.at(atoi(selected.c_str()));
 }
 
@@ -659,9 +665,13 @@ unsigned int SecureChatClient::waitForResponse(){
     unsigned int buf_len;
     incrementCounter(0);
     checkCounter(0, (unsigned char*)enc_buf);
+
     if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1) == false){
         cerr<<"ERR: Error while decrypting"<<endl;
         exit(1);
+    };
+    if(checkBadResponse((char*)buf, buf_len) == true){
+        return 0;
     };
     cout<<"LOG: Response to RTT received!"<<endl;
 
@@ -679,6 +689,42 @@ unsigned int SecureChatClient::waitForResponse(){
 
     return response;
 };
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends a refresh message to the server.       *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatClient::refresh(){ 
+    char msg[LOGOUT_MAX_SIZE];
+    msg[0] = 10;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(1);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = LOGOUT_MAX_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(LOGOUT_MAX_SIZE, this->K, (unsigned char*)msg, ciphertext, outlen, cipherlen, this->user_counter, tag, enc_buf, enc_buf_max_len, 1, enc_buf_len) == false){
+        cerr<<"ERR: Error in the encryption"<<endl;
+        exit(1);
+    };    
+    if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the refresh message."<<endl; exit(1); }
+}
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function checks if the message is a bad response.     *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+bool SecureChatClient::checkBadResponse(char* msg, unsigned int buffer_len){
+    if(msg[0] != 7 || buffer_len != 1)
+        return false;
+    return true;
+}
 
 /* ---------------------------------------------------------- *\
 |*                                                            *|
@@ -859,7 +905,7 @@ void SecureChatClient::senderKeyEstablishment(string receiver_username, EVP_PKEY
     \* ---------------------------------------------------------- */
     unsigned char* signature;
     unsigned int signature_len;
-    Utility::signMessage(this->client_prvkey, (char*)r2, R_SIZE, &signature, &signature_len);
+    Utility::signMessage(this->client_prvkey, (char*)buf, len, &signature, &signature_len);
     Utility::secure_thread_memcpy((unsigned char*)buf, len, S3_SIZE, signature, 0, SIGNATURE_SIZE, signature_len);
     len += SIGNATURE_SIZE;
 
@@ -1035,7 +1081,7 @@ void SecureChatClient::receiverKeyEstablishment(string sender_username, EVP_PKEY
     if ((unsigned long)buf + R_SIZE < R_SIZE){ cerr<<"Wrap around"<<endl; exit(1); }
     if (len < SIGNATURE_SIZE){ cerr<<"Access out-of-bound"<<endl; exit(1); }
     if ((unsigned long)buf + len < len){ cerr<<"Wrap around"<<endl; exit(1); }
-    if(Utility::verifyMessage(peer_key, (char*)buf+1, R_SIZE, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
+    if(Utility::verifyMessage(peer_key, (char*)buf, len - SIGNATURE_SIZE, (unsigned char*)((unsigned long)buf+len-SIGNATURE_SIZE), SIGNATURE_SIZE) != 1) { 
         cerr<<"ERR: Authentication error while receiving the M3 message"<<endl;
         exit(1);
     }

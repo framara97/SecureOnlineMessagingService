@@ -4,7 +4,7 @@
 #include <thread>
 #include <openssl/x509.h>
 #include <sys/select.h>
-#include<signal.h>
+#include <signal.h>
 
 EVP_PKEY* SecureChatServer::server_prvkey = NULL;
 X509* SecureChatServer::server_certificate = NULL;
@@ -223,76 +223,85 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
     |* Sender case                                                *|
     \* ---------------------------------------------------------- */
     if(status == 0){
-        /* ---------------------------------------------------------- *\
-        |* Send the list of users that are available to receive       *|
-        \* ---------------------------------------------------------- */
-        sendAvailableUsers(data_socket, username);
-        cout<<"Thread "<<gettid()<<": Available users sent to "<<username<<endl;
-        
-        /* ---------------------------------------------------------- *\
-        |* Server's thread receive the RTT message                    *|
-        \* ---------------------------------------------------------- */
-        string receiver_username = receiveRTT(data_socket, username);
-        cout<<"Thread "<<gettid()<<": RTT received from "<<username<<endl;
+        while(1){
+            /* ---------------------------------------------------------- *\
+            |* Send the list of users that are available to receive       *|
+            \* ---------------------------------------------------------- */
+            sendAvailableUsers(data_socket, username);
+            cout<<"Thread "<<gettid()<<": Available users sent to "<<username<<endl;
 
-        /* ---------------------------------------------------------- *\
-        |* Server forwards the RTT to the final receiver              *|
-        \* ---------------------------------------------------------- */
-        changeUserStatus(receiver_username, 0, 0);
-        cout<<"Thread "<<gettid()<<": Changed status of user "<<receiver_username<<endl;
-        forwardRTT(receiver_username, username);
-        cout<<"Thread "<<gettid()<<": RTT forwarded to "<<receiver_username<<endl;
+            /* ---------------------------------------------------------- *\
+            |* Server's thread receive the RTT message                    *|
+            \* ---------------------------------------------------------- */
+            string receiver_username = receiveRTT(data_socket, username);
+            if(receiver_username.compare("") == 0) { continue; }
+            cout<<"Thread "<<gettid()<<": RTT received from "<<username<<endl;
 
-        /* ---------------------------------------------------------- *\
-        |* Wait on the condition variable of the receiver             *|
-        \* ---------------------------------------------------------- */
-        wait(receiver_username);
+            if((*users).at(receiver_username).status == 0){
+                sendBadResponse(data_socket, username);
+                sleep(5);
+                continue;
+            }
+            /* ---------------------------------------------------------- *\
+            |* Server forwards the RTT to the final receiver              *|
+            \* ---------------------------------------------------------- */
+            changeUserStatus(receiver_username, 0, 0);
+            cout<<"Thread "<<gettid()<<": Changed status of user "<<receiver_username<<endl;
+            forwardRTT(receiver_username, username);
+            cout<<"Thread "<<gettid()<<": RTT forwarded to "<<receiver_username<<endl;
+            
+            /* ---------------------------------------------------------- *\
+            |* Wait on the condition variable of the receiver             *|
+            \* ---------------------------------------------------------- */
+            wait(receiver_username);
+            /* ---------------------------------------------------------- *\
+            |* Check if the request has been accepted                     *|
+            \* ---------------------------------------------------------- */
+            pthread_mutex_lock(&(*users).at(username).user_mutex);
+            if((*users).at(receiver_username).responses.at(username) != 1) { pthread_mutex_unlock(&(*users).at(username).user_mutex); continue; }
+            pthread_mutex_unlock(&(*users).at(username).user_mutex);
 
-        /* ---------------------------------------------------------- *\
-        |* Check if the request has been accepted                     *|
-        \* ---------------------------------------------------------- */
-        pthread_mutex_lock(&(*users).at(username).user_mutex);
-        if((*users).at(receiver_username).responses.at(username) != 1) { pthread_exit(NULL); }
-        pthread_mutex_unlock(&(*users).at(username).user_mutex);
-
-        /* ---------------------------------------------------------- *\
-        |* Starts a new thread to handle the chat                     *|
-        \* ---------------------------------------------------------- */
-        int receiver_socket = (*users).at(receiver_username).socket;
-        thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
-        handler.detach();
-
+            /* ---------------------------------------------------------- *\
+            |* Starts a new thread to handle the chat                     *|
+            \* ---------------------------------------------------------- */
+            int receiver_socket = (*users).at(receiver_username).socket;
+            thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
+            handler.join();
+        }
     }
     /* ---------------------------------------------------------- *\
     |* Receiver case                                              *|
     \* ---------------------------------------------------------- */
     if (status == 1){ //user wants to receive a message
-        /* ---------------------------------------------------------- *\
-        |* Server waits for the response (accept or refuse)           *|
-        |* from the final receiver                                    *|
-        \* ---------------------------------------------------------- */
-        unsigned int response;
-        string sender_username = receiveResponse(data_socket, username, response);
-        cout<<"Thread "<<gettid()<<": Response received from "<<username<<endl;
+        while(1){
+            /* ---------------------------------------------------------- *\
+            |* Server waits for the response (accept or refuse)           *|
+            |* from the final receiver                                    *|
+            \* ---------------------------------------------------------- */
+            unsigned int response;
+            string sender_username = receiveResponse(data_socket, username, response);
+            cout<<"Thread "<<gettid()<<": Response received from "<<username<<endl;
 
-        /* ---------------------------------------------------------- *\
-        |* Server forwards the response to the sender                 *|
-        \* ---------------------------------------------------------- */
-        forwardResponse(sender_username, username, response);
-        cout<<"Thread "<<gettid()<<": Response forwarded to "<<sender_username<<endl;
+            /* ---------------------------------------------------------- *\
+            |* Server forwards the response to the sender                 *|
+            \* ---------------------------------------------------------- */
+            forwardResponse(sender_username, username, response);
+            cout<<"Thread "<<gettid()<<": Response forwarded to "<<sender_username<<endl;
 
-        /* ---------------------------------------------------------- *\
-        |* If request has been refused, all the sockets are closed.   *|
-        \* ---------------------------------------------------------- */
-        if (response == 0){
-            close(data_socket);
-            close((*users).at(sender_username).socket);
+            if (response == 0){
+                changeUserStatus(username, 1, 0);
+            }
+            /* ---------------------------------------------------------- *\
+            |* Frees the other thread that is handling the sender         *|
+            \* ---------------------------------------------------------- */
+            notify(username);
+
+            /* ---------------------------------------------------------- *\
+            |* If request has been refused, all the sockets are closed.   *|
+            \* ---------------------------------------------------------- */
+            if (response == 1)
+                break;  
         }
-
-        /* ---------------------------------------------------------- *\
-        |* Frees the other thread that is handling the sender         *|
-        \* ---------------------------------------------------------- */
-        notify(username);
     }
 
     pthread_exit(NULL);
@@ -459,7 +468,7 @@ void SecureChatServer::sendS3Message(int data_socket, unsigned char* K, unsigned
     \* ---------------------------------------------------------- */
     unsigned char* signature;
     unsigned int signature_len;
-    Utility::signMessage(server_prvkey, (char*)R_user, R_SIZE, &signature, &signature_len);
+    Utility::signMessage(server_prvkey, (char*)buf, len, &signature, &signature_len);
     Utility::secure_thread_memcpy((unsigned char*)buf, len, S3_SIZE, signature, 0, SIGNATURE_SIZE, signature_len);
     len += SIGNATURE_SIZE;
 
@@ -520,7 +529,7 @@ void SecureChatServer::sendUserPubKey(string username, int data_socket, string k
         pthread_exit(NULL);
     };
     if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the user pubkey"<<endl;
 		pthread_exit(NULL);
 	}
 	return;
@@ -801,6 +810,7 @@ string SecureChatServer::receiveRTT(int data_socket, string username){
     };
 
     checkLogout(data_socket, 0, (char*)buf, buf_len, username, "");
+    if(checkRefresh((char*)buf, buf_len, username) == true){ return ""; }
 
     unsigned int message_type = buf[0];
     if (message_type != 3){ cerr<<"Thread "<<gettid()<<": Message type is not corresponding to 'RTT type'."<<endl; pthread_exit(NULL); }
@@ -844,7 +854,7 @@ void SecureChatServer::forwardRTT(string receiver_username, string sender_userna
         pthread_exit(NULL);
     };
     if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the RTT forwarded"<<endl;
 		pthread_exit(NULL);
 	}
     
@@ -926,11 +936,53 @@ void SecureChatServer::forwardResponse(string sender_username, string username, 
         pthread_exit(NULL);
     };
     if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
+		cerr<<"Thread "<<gettid()<<"Error in the sendto of the Response forwarded"<<endl;
 		pthread_exit(NULL);
 	}
 
     cout<<"Thread "<<gettid()<<": Response to RTT sent from "<<username<<" to "<<sender_username<<" with value equal to "<<response<<endl;
+}
+
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function checks if the message received is a refresh. *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+bool SecureChatServer::checkRefresh(char* msg, unsigned int buffer_len,string username){
+    incrementCounter(0, username);
+    if(msg[0] != 10 || buffer_len != 1)
+        return false;
+    return true;
+}
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends a bad response message to the user.    *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatServer::sendBadResponse(int data_socket, string username){
+    char msg[LOGOUT_MAX_SIZE];
+    msg[0] = 7;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(0, username);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = LOGOUT_MAX_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(LOGOUT_MAX_SIZE, (*users).at(username).K, (unsigned char*)msg, ciphertext, outlen, cipherlen, (*users).at(username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the send of the bad response message"<<endl;
+		pthread_exit(NULL);
+	}
 }
 
 /* ---------------------------------------------------------- *\
@@ -950,6 +1002,7 @@ void SecureChatServer::checkLogout(int data_socket, int other_socket, char* msg,
     else{ cout<<"Thread "<<gettid()<<": Logout completed correctly"<<endl;}
     pthread_exit(NULL);
 }
+
 
 /* ---------------------------------------------------------- *\
 |*                                                            *|
@@ -998,7 +1051,7 @@ void SecureChatServer::forward(string username, unsigned char* msg, unsigned int
         pthread_exit(NULL);
     };
     if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
-		cerr<<"Thread "<<gettid()<<"Error in the sendto of the available user list"<<endl;
+		cerr<<"Thread "<<gettid()<<"Error in the forward"<<endl;
 		pthread_exit(NULL);
 	}
 

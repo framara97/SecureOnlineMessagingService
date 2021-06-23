@@ -91,6 +91,12 @@ class SecureChatClient{
         //Wait for response to RTT
         unsigned int waitForResponse();
 
+        //Refresh user list
+        void refresh();
+
+        //Checks if the message is a bad response.
+        bool checkBadResponse(char* msg, unsigned int buffer_len);
+
         //User logout
         void logout();
 
