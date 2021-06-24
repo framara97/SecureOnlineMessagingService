@@ -227,6 +227,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
             /* ---------------------------------------------------------- *\
             |* Send the list of users that are available to receive       *|
             \* ---------------------------------------------------------- */
+            cout<<"Trying to send the available users"<<endl;
             sendAvailableUsers(data_socket, username);
             cout<<"Thread "<<gettid()<<": Available users sent to "<<username<<endl;
 
@@ -239,7 +240,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
 
             if((*users).at(receiver_username).status == 0){
                 sendBadResponse(data_socket, username);
-                sleep(5);
+                waitForAck(data_socket, username);
                 continue;
             }
             /* ---------------------------------------------------------- *\
@@ -267,6 +268,7 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
             int receiver_socket = (*users).at(receiver_username).socket;
             thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
             handler.join();
+            cout<<"Returning to lobby.."<<endl;
         }
     }
     /* ---------------------------------------------------------- *\
@@ -392,14 +394,14 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
             unsigned char* msg;
             unsigned int len;
             receive(sender_socket, sender, len, msg, GENERAL_MSG_SIZE);
-            checkLogout(sender_socket, receiver_socket, (char*)msg, len, sender, receiver);
+            checkLobby((char*)msg, len);
             forward(receiver, msg, len);
         }
         if (FD_ISSET(receiver_socket, &copy)){
             unsigned char* msg;
             unsigned int len;
             receive(receiver_socket, receiver, len, msg, GENERAL_MSG_SIZE);
-            checkLogout(receiver_socket, sender_socket, (char*)msg, len, receiver, sender);
+            checkLobby((char*)msg, len);
             forward(sender, msg, len);
         }
     }
@@ -950,7 +952,6 @@ void SecureChatServer::forwardResponse(string sender_username, string username, 
 |*                                                            *|
 \* ---------------------------------------------------------- */
 bool SecureChatServer::checkRefresh(char* msg, unsigned int buffer_len,string username){
-    incrementCounter(0, username);
     if(msg[0] != 10 || buffer_len != 1)
         return false;
     return true;
@@ -1003,6 +1004,19 @@ void SecureChatServer::checkLogout(int data_socket, int other_socket, char* msg,
     pthread_exit(NULL);
 }
 
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function checks if the message received is a return to*|
+|* lobby.                                                     *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatServer::checkLobby(char* msg, unsigned int buffer_len){
+    if(msg[0] != 12 || buffer_len != 1)
+        return;
+    
+    else{ cout<<"Thread "<<gettid()<<": Return to lobby completed correctly"<<endl;}
+    pthread_exit(NULL);
+}
 
 /* ---------------------------------------------------------- *\
 |*                                                            *|
@@ -1087,4 +1101,36 @@ void SecureChatServer::notify(string username){
 void SecureChatServer::storeK(string username, unsigned char* K){
     (*users).at(username).K = (unsigned char*)malloc(K_SIZE);
     Utility::secure_thread_memcpy((*users).at(username).K, 0, K_SIZE, K, 0, K_SIZE, K_SIZE);
+}
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function receives and decrypts an ACK.                *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatServer::waitForAck(int data_socket, string username){
+    char* enc_buf = (char*)malloc(ACK_SIZE+ENC_FIELDS);
+    if (!enc_buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int len = recv(data_socket, (void*)enc_buf, ACK_SIZE+ENC_FIELDS, 0);
+    if (len < 0){ cerr<<"Thread "<<gettid()<<": Error in receiving an ACK message"<<endl; pthread_exit(NULL); }
+    if (len == 0){
+        close(data_socket);
+        cout<<"Thread "<<gettid()<<": Logout completed correctly"<<endl;
+        pthread_exit(NULL);
+    }
+
+    unsigned char* buf = (unsigned char*)malloc(ACK_SIZE);
+    if (!buf){ cerr<<"Thread "<<gettid()<<"There is not more space in memory to allocate a new buffer"<<endl; pthread_exit(NULL); }
+    unsigned int buf_len;
+    incrementCounter(1, username);
+    checkCounter(1, username, (unsigned char*)enc_buf);
+    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, (*users).at(username).K, buf_len, 0) == false){
+        cerr<<"ERR: Error while decrypting"<<endl;
+        pthread_exit(NULL);
+    };
+
+    if (buf[0]!=11){
+        cerr<<"Thread "<<gettid()<<": Message type not corresponding to 'ACK' type"<<endl;
+        pthread_exit(NULL);
+    }
 }

@@ -102,6 +102,10 @@ class SecureChatServer{
 
         void storeK(string username, unsigned char* K);
 
+        void waitForAck(int data_socket, string username);
+
+        void checkLobby(char* msg, unsigned int buffer_len);
+
     public:
         //Constructor that gets as inputs the address, the port and the user filename.
         SecureChatServer(const char* addr, unsigned short int port, const char *user_filename);

@@ -105,80 +105,82 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
     unsigned int response;
     EVP_PKEY* peer_key;
 
-    /* ---------------------------------------------------------- *\
-    |* client wants to send a message                             *|
-    \* ---------------------------------------------------------- */
-    if(choice == 0){ 
-        while(1){
-            /* ---------------------------------------------------------- *\
-            |* Print the user list and select a user to communicate with  *|
-            \* ---------------------------------------------------------- */
-            string selected_user = receiveAvailableUsers();
-            /* ---------------------------------------------------------- *\
-            |* Send request to talk to the selected user                  *|
-            \* ---------------------------------------------------------- */
-            sendRTT(selected_user);
-
-            /* ---------------------------------------------------------- *\
-            |* Wait for the answer to the previous RTT                    *|
-            \* ---------------------------------------------------------- */
-            response = waitForResponse();
-            if (response==0){
-                cout<<"LOG: response equal to 0"<<endl;
-                continue;
-            }
-
-            if(response==1){
+    while(1){
+        /* ---------------------------------------------------------- *\
+        |* client wants to send a message                             *|
+        \* ---------------------------------------------------------- */
+        if(choice == 0){ 
+            while(1){
                 /* ---------------------------------------------------------- *\
-                |* Wait for the selected_user public key                      *|
+                |* Print the user list and select a user to communicate with  *|
                 \* ---------------------------------------------------------- */
-                peer_key = receiveUserPubKey(selected_user);
+                string selected_user = receiveAvailableUsers();
+                /* ---------------------------------------------------------- *\
+                |* Send request to talk to the selected user                  *|
+                \* ---------------------------------------------------------- */
+                sendRTT(selected_user);
 
                 /* ---------------------------------------------------------- *\
-                |* Handle key establishment                                   *|
+                |* Wait for the answer to the previous RTT                    *|
                 \* ---------------------------------------------------------- */
-                senderKeyEstablishment(selected_user, peer_key);
+                response = waitForResponse();
+                if (response==0){
+                    cout<<"LOG: response equal to 0"<<endl;
+                    continue;
+                }
+
+                if(response==1){
+                    /* ---------------------------------------------------------- *\
+                    |* Wait for the selected_user public key                      *|
+                    \* ---------------------------------------------------------- */
+                    peer_key = receiveUserPubKey(selected_user);
+
+                    /* ---------------------------------------------------------- *\
+                    |* Handle key establishment                                   *|
+                    \* ---------------------------------------------------------- */
+                    senderKeyEstablishment(selected_user, peer_key);
+                }
             }
         }
-    }
-    /* ---------------------------------------------------------- *\
-    |* client wants to receive a message                          *|
-    \* ---------------------------------------------------------- */ 
-    else if(choice == 1){ 
-        while(1){
-            string sender_username = waitForRTT();
-            string input;
-
-            cout<<"LOG: "<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"    0: Refuse"<<endl<<"    1: Accept"<<endl;
-            cout<<"LOG: Select a choice: ";
-            cin>>input;
-            if(!cin){exit(1);}
+        /* ---------------------------------------------------------- *\
+        |* client wants to receive a message                          *|
+        \* ---------------------------------------------------------- */ 
+        else if(choice == 1){ 
             while(1){
-                if(input.compare("0")!=0 && input.compare("1")!=0){
-                    cout<<"LOG: Choice not valid! Choose 0 or 1!"<<endl;
-                    cin>>input;
-                    if(!cin){exit(1);}
-                } else break;
-            }
+                string sender_username = waitForRTT();
+                string input;
 
-            response = input.c_str()[0]-'0';
+                cout<<"LOG: "<<sender_username<<" wants to send you a message. Do you want to "<<endl<<"    0: Refuse"<<endl<<"    1: Accept"<<endl;
+                cout<<"LOG: Select a choice: ";
+                cin>>input;
+                if(!cin){exit(1);}
+                while(1){
+                    if(input.compare("0")!=0 && input.compare("1")!=0){
+                        cout<<"LOG: Choice not valid! Choose 0 or 1!"<<endl;
+                        cin>>input;
+                        if(!cin){exit(1);}
+                    } else break;
+                }
 
-            sendResponse(sender_username, response);
+                response = input.c_str()[0]-'0';
 
-            if (response==0){
-                continue;
-            }
+                sendResponse(sender_username, response);
 
-            if(response==1){
-                /* ---------------------------------------------------------- *\
-                |* Wait for the selected_user public key                      *|
-                \* ---------------------------------------------------------- */
-                peer_key = receiveUserPubKey(sender_username);
+                if (response==0){
+                    continue;
+                }
 
-                /* ---------------------------------------------------------- *\
-                |* Handle key establishment                                   *|
-                \* ---------------------------------------------------------- */
-                receiverKeyEstablishment(sender_username, peer_key);
+                if(response==1){
+                    /* ---------------------------------------------------------- *\
+                    |* Wait for the selected_user public key                      *|
+                    \* ---------------------------------------------------------- */
+                    peer_key = receiveUserPubKey(sender_username);
+
+                    /* ---------------------------------------------------------- *\
+                    |* Handle key establishment                                   *|
+                    \* ---------------------------------------------------------- */
+                    receiverKeyEstablishment(sender_username, peer_key);
+                }
             }
         }
     }
@@ -545,6 +547,7 @@ string SecureChatClient::receiveAvailableUsers(){
             refresh();
             continue;
         }
+        break;
     }
     return users_online.at(atoi(selected.c_str()));
 }
@@ -659,6 +662,7 @@ unsigned int SecureChatClient::waitForResponse(){
     if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
     unsigned int len = recv(this->server_socket, (void*)enc_buf, RESPONSE_MAX_SIZE+ENC_FIELDS, 0);
     if (len < 0){ cerr<<"ERR: Error in receiving the RTT message"<<endl; exit(1); }
+    cout<<"Response message len: "<<len<<endl;
 
     unsigned char* buf = (unsigned char*)malloc(RESPONSE_MAX_SIZE);
     if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
@@ -671,6 +675,7 @@ unsigned int SecureChatClient::waitForResponse(){
         exit(1);
     };
     if(checkBadResponse((char*)buf, buf_len) == true){
+        sendAck();
         return 0;
     };
     cout<<"LOG: Response to RTT received!"<<endl;
@@ -713,6 +718,31 @@ void SecureChatClient::refresh(){
         exit(1);
     };    
     if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the refresh message."<<endl; exit(1); }
+}
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends a ACK message to the server.           *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatClient::sendAck(){ 
+    char msg[ACK_SIZE];
+    msg[0] = 11;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(1);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = LOGOUT_MAX_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(LOGOUT_MAX_SIZE, this->K, (unsigned char*)msg, ciphertext, outlen, cipherlen, this->user_counter, tag, enc_buf, enc_buf_max_len, 1, enc_buf_len) == false){
+        cerr<<"ERR: Error in the encryption"<<endl;
+        exit(1);
+    };    
+    if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the ACK message."<<endl; exit(1); }
 }
 
 /* ---------------------------------------------------------- *\
@@ -1217,11 +1247,6 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             char* p = strchr(input, '\n');
             if (p){*p = '\0';}
             if (strcmp(input, "")==0){continue;}
-            if(strcmp(input, "q")==0){
-                cout<<"LOG: Logout..."<<endl;
-                logout(); 
-                exit(0);
-            }
             /* ---------------------------------------------------------- *\
             |* Encrypt msg using K                                        *|
             \* ---------------------------------------------------------- */
@@ -1259,6 +1284,11 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             };
             
             if (send(this->server_socket, server_enc_buf, server_enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto a chat message."<<endl; exit(1); }
+            if (strcmp(input, "q")==0){
+                sendLobby();
+                cout<<"LOG: Returning to the lobby..."<<endl;
+                return;
+            }
         }
     }
 }
@@ -1311,6 +1341,8 @@ void SecureChatClient::checkCounter(int counter, unsigned char* received_counter
     if (counter == 0){
         __uint128_t server_counter_12 = this->server_counter;
         memset((unsigned char*)(&server_counter_12)+12, 0, 4);
+        Utility::printMessage("Received counter", (unsigned char*)&received_counter, sizeof(__uint128_t));
+        Utility::printMessage("Expected counter", (unsigned char*)&server_counter_12, sizeof(__uint128_t));
         if (server_counter_12 != received_counter || received_counter == this->base_counter){ cerr<<"Bad received server counter"<<endl; exit(1); }
         return;
     }
@@ -1401,3 +1433,30 @@ void SecureChatClient::storeChatK(unsigned char* K){
     this->chat_K = (unsigned char*)malloc(K_SIZE);
     Utility::secure_memcpy(this->chat_K, 0, K_SIZE, K, 0, K_SIZE, K_SIZE);
 }
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function sends a ACK message to the server.           *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+void SecureChatClient::sendLobby(){ 
+    char msg[RETURN_TO_LOBBY_SIZE];
+    msg[0] = 12;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(1);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = RETURN_TO_LOBBY_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(RETURN_TO_LOBBY_SIZE, this->K, (unsigned char*)msg, ciphertext, outlen, cipherlen, this->user_counter, tag, enc_buf, enc_buf_max_len, 1, enc_buf_len) == false){
+        cerr<<"ERR: Error in the encryption"<<endl;
+        exit(1);
+    };    
+    if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the return to lobby message."<<endl; exit(1); }
+}
+
+// TODO: la check lobby non funziona perche riceve un messaggio diverso da quello che dovrebbe

@@ -33,3 +33,7 @@ const unsigned int LOGOUT_NONCE_MSG_SIZE = 3*BLOCK_SIZE + ENCRYPTED_KEY_SIZE + S
 const unsigned int S1_SIZE = CERTIFICATE_MAX_SIZE + R_SIZE;
 const unsigned int S2_SIZE = 1 + 2*R_SIZE + sizeof(long) + PUBKEY_SIZE + 1 + USERNAME_MAX_SIZE + SIGNATURE_SIZE;
 const unsigned int S3_SIZE = 1 + R_SIZE + 3*BLOCK_SIZE + ENCRYPTED_KEY_SIZE + SIGNATURE_SIZE;
+const unsigned int ACK_SIZE = 1;
+const unsigned int REFRESH_SIZE = 1;
+const unsigned int BAD_RESPONSE_SIZE = 1;
+const unsigned int RETURN_TO_LOBBY_SIZE = 1;
