@@ -1,7 +1,6 @@
 #include "SecureChatServer.h"
 #include <cstring>
 #include <iostream>
-#include <thread>
 #include <openssl/x509.h>
 #include <sys/select.h>
 #include <signal.h>
@@ -267,7 +266,9 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
             \* ---------------------------------------------------------- */
             int receiver_socket = (*users).at(receiver_username).socket;
             thread handler (&SecureChatServer::handleChat, this, data_socket, receiver_socket, username, receiver_username);
+
             handler.join();
+            notify(username);
             cout<<"Returning to lobby.."<<endl;
         }
     }
@@ -297,12 +298,10 @@ void SecureChatServer::handleConnection(int data_socket, sockaddr_in client_addr
             |* Frees the other thread that is handling the sender         *|
             \* ---------------------------------------------------------- */
             notify(username);
-
-            /* ---------------------------------------------------------- *\
-            |* If request has been refused, all the sockets are closed.   *|
-            \* ---------------------------------------------------------- */
-            if (response == 1)
-                break;  
+            if (response == 0){
+                continue;
+            }
+            wait(sender_username);
         }
     }
 
@@ -394,14 +393,14 @@ void SecureChatServer::handleChat(int sender_socket, int receiver_socket, string
             unsigned char* msg;
             unsigned int len;
             receive(sender_socket, sender, len, msg, GENERAL_MSG_SIZE);
-            checkLobby((char*)msg, len);
+            checkLobby((char*)msg, len, receiver, receiver_socket, "");
             forward(receiver, msg, len);
         }
         if (FD_ISSET(receiver_socket, &copy)){
             unsigned char* msg;
             unsigned int len;
             receive(receiver_socket, receiver, len, msg, GENERAL_MSG_SIZE);
-            checkLobby((char*)msg, len);
+            checkLobby((char*)msg, len, sender, sender_socket, receiver);
             forward(sender, msg, len);
         }
     }
@@ -995,6 +994,8 @@ void SecureChatServer::checkLogout(int data_socket, int other_socket, char* msg,
     if(msg[0] != 8 || buffer_len != 1)
         return;
     
+    changeUserStatus(username, 0, 0);
+    
     close(data_socket);
     if (other_socket != 0){
         close(other_socket);
@@ -1010,11 +1011,40 @@ void SecureChatServer::checkLogout(int data_socket, int other_socket, char* msg,
 |* lobby.                                                     *|
 |*                                                            *|
 \* ---------------------------------------------------------- */
-void SecureChatServer::checkLobby(char* msg, unsigned int buffer_len){
-    if(msg[0] != 12 || buffer_len != 1)
+void SecureChatServer::checkLobby(char* buf, unsigned int buffer_len, string username, int data_socket, string other_username){
+    if(buf[0] != 12 || buffer_len != 1)
         return;
     
     else{ cout<<"Thread "<<gettid()<<": Return to lobby completed correctly"<<endl;}
+
+    char msg[RETURN_TO_LOBBY_SIZE];
+    msg[0] = 12;
+    /* ---------------------------------------------------------- *\
+    |* Encrypt and send the message.                              *|
+    \* ---------------------------------------------------------- */
+    incrementCounter(0, username);
+    unsigned char* ciphertext, *tag, *enc_buf;
+    int outlen;
+    unsigned int cipherlen;
+    unsigned int enc_buf_max_len = LOGOUT_MAX_SIZE + ENC_FIELDS;
+    unsigned int enc_buf_len;
+    enc_buf = (unsigned char*)malloc(enc_buf_max_len);
+    if (Utility::encryptSessionMessage(LOGOUT_MAX_SIZE, (*users).at(username).K, (unsigned char*)msg, ciphertext, outlen, cipherlen, (*users).at(username).server_counter, tag, enc_buf, enc_buf_max_len, 0, enc_buf_len) == false){
+        cerr<<"Thread "<<gettid()<<"Error in the encryption"<<endl;
+        pthread_exit(NULL);
+    };
+
+    if (send(data_socket, enc_buf, enc_buf_len, 0) < 0){
+		cerr<<"Thread "<<gettid()<<"Error in the send of the bad response message"<<endl;
+		pthread_exit(NULL);
+	}
+
+    if(other_username.compare("") == 0){
+        changeUserStatus(username, 1, 0);
+    } else { 
+        changeUserStatus(other_username, 1, 0);
+    }
+
     pthread_exit(NULL);
 }
 
@@ -1039,6 +1069,7 @@ void SecureChatServer::receive(int data_socket, string username, unsigned int &l
     unsigned int buf_len;
     incrementCounter(1, username);
     checkCounter(1, username, (unsigned char*)enc_buf);
+
     if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, (*users).at(username).K, buf_len, 0) == false){
         cerr<<"ERR: Error while decrypting"<<endl;
         pthread_exit(NULL);

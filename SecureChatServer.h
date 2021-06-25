@@ -9,6 +9,7 @@
 #include <cstring>
 #include <openssl/evp.h>
 #include <vector>
+#include <thread>
 #include "User.h"
 
 class SecureChatServer{
@@ -104,7 +105,7 @@ class SecureChatServer{
 
         void waitForAck(int data_socket, string username);
 
-        void checkLobby(char* msg, unsigned int buffer_len);
+        void checkLobby(char* msg, unsigned int buffer_len, string username, int data_socket, string other_username);
 
     public:
         //Constructor that gets as inputs the address, the port and the user filename.

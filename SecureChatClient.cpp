@@ -147,6 +147,7 @@ SecureChatClient::SecureChatClient(string client_username, const char *server_ad
         \* ---------------------------------------------------------- */ 
         else if(choice == 1){ 
             while(1){
+                cout<<"LOG: Waiting for RTT (press 'q' to logout)..."<<endl;
                 string sender_username = waitForRTT();
                 string input;
 
@@ -589,30 +590,61 @@ void SecureChatClient::sendRTT(string selected_user){
 |*                                                            *|
 \* ---------------------------------------------------------- */
 string SecureChatClient::waitForRTT(){
-    char* enc_buf = (char*)malloc(RTT_MAX_SIZE+ENC_FIELDS);
-    if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    unsigned int len = recv(this->server_socket, (void*)enc_buf, RTT_MAX_SIZE+ENC_FIELDS, 0);
-    if (len < 0){ cerr<<"ERR: Error in receiving the RTT message"<<endl; exit(1); }
+    fd_set master, copy;
+    FD_ZERO(&master);
 
-    unsigned char* buf = (unsigned char*)malloc(RTT_MAX_SIZE);
-    if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
-    unsigned int buf_len;
-    incrementCounter(0);
-    checkCounter(0, (unsigned char*)enc_buf);
-    if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1) == false){
-        cerr<<"ERR: Error while decrypting"<<endl;
-        exit(1);
-    };
+    FD_SET(this->server_socket, &master);
+    FD_SET(STDIN_FILENO, &master);
+    unsigned int my_nonce = 0;
+    unsigned int other_nonce = 0;
 
-    unsigned int message_type = buf[0];
-    if (message_type != 3){ cerr<<"ERR: Message type is not corresponding to 'RTT type'."<<endl; exit(1); }
-    unsigned int sender_username_len = buf[1];
-    if (sender_username_len > USERNAME_MAX_SIZE){ cerr<<"ERR: Receiver Username length is over the upper bound."<<endl; }
-    string sender_username;
-    if ((unsigned long)buf + 2 < 2){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
-    sender_username.append((char*)buf+2, sender_username_len);
+    while(true){
+        copy = master;
 
-    return sender_username;
+        int count = select(FD_SETSIZE, &copy, NULL, NULL, NULL);
+
+        if (FD_ISSET(this->server_socket, &copy)){
+                char* enc_buf = (char*)malloc(RTT_MAX_SIZE+ENC_FIELDS);
+                if (!enc_buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+                unsigned int len = recv(this->server_socket, (void*)enc_buf, RTT_MAX_SIZE+ENC_FIELDS, 0);
+                if (len < 0){ cerr<<"ERR: Error in receiving the RTT message"<<endl; exit(1); }
+
+                unsigned char* buf = (unsigned char*)malloc(RTT_MAX_SIZE);
+                if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
+                unsigned int buf_len;
+                incrementCounter(0);
+                checkCounter(0, (unsigned char*)enc_buf);
+                if (Utility::decryptSessionMessage(buf, (unsigned char*)enc_buf, len, this->K, buf_len, 1) == false){
+                    cerr<<"ERR: Error while decrypting"<<endl;
+                    exit(1);
+                };
+
+                unsigned int message_type = buf[0];
+                if (message_type != 3){ cerr<<"ERR: Message type is not corresponding to 'RTT type'."<<endl; exit(1); }
+                unsigned int sender_username_len = buf[1];
+                if (sender_username_len > USERNAME_MAX_SIZE){ cerr<<"ERR: Receiver Username length is over the upper bound."<<endl; }
+                string sender_username;
+                if ((unsigned long)buf + 2 < 2){ cerr<<"ERR: Wrap around"<<endl; exit(1); }
+                sender_username.append((char*)buf+2, sender_username_len);
+
+                return sender_username;
+        }
+
+        if (FD_ISSET(STDIN_FILENO, &copy)){
+            char* input = (char*)malloc(INPUT_SIZE);
+
+            if (fgets(input, INPUT_SIZE, stdin)==NULL){ cerr<<"ERR: Error while reading from stdin."<<endl; exit(1);}
+            char* p = strchr(input, '\n');
+            if (p){*p = '\0';}
+            if (strcmp(input, "q")==0){
+                logout();
+                cout<<"LOG: Logout..."<<endl;
+                exit(0);
+            }
+        }
+    }
+
+
 };
 
 /* ---------------------------------------------------------- *\
@@ -781,6 +813,19 @@ void SecureChatClient::logout(){
     if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the logout message."<<endl; exit(1); }
     
     close(this->server_socket);
+}
+
+/* ---------------------------------------------------------- *\
+|*                                                            *|
+|* This function checks if the message received is a return to*|
+|* lobby.                                                     *|
+|*                                                            *|
+\* ---------------------------------------------------------- */
+bool SecureChatClient::checkLobby(char* msg, unsigned int buffer_len){
+    if(msg[0] != 12 || buffer_len != 1)
+        return false;
+
+    return true;
 }
 
 /* ---------------------------------------------------------- *\
@@ -1219,6 +1264,11 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
                 exit(1);
             };
             len = server_buf_len;
+            
+            if(checkLobby((char*)client_enc_buf, len) == true) {
+                cout<<"LOG: Returning to the lobby..."<<endl;
+                return;
+            };
 
             unsigned char* buf = (unsigned char*)malloc(GENERAL_MSG_SIZE);
             if (!buf){ cerr<<"ERR: There is not more space in memory to allocate a new buffer"<<endl; exit(1); }
@@ -1247,6 +1297,11 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             char* p = strchr(input, '\n');
             if (p){*p = '\0';}
             if (strcmp(input, "")==0){continue;}
+            if (strcmp(input, "q")==0){
+                sendLobby();
+                cout<<"LOG: Returning to the lobby..."<<endl;
+                return;
+            }
             /* ---------------------------------------------------------- *\
             |* Encrypt msg using K                                        *|
             \* ---------------------------------------------------------- */
@@ -1284,11 +1339,6 @@ void SecureChatClient::chat(string other_username, unsigned char* K, EVP_PKEY* p
             };
             
             if (send(this->server_socket, server_enc_buf, server_enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto a chat message."<<endl; exit(1); }
-            if (strcmp(input, "q")==0){
-                sendLobby();
-                cout<<"LOG: Returning to the lobby..."<<endl;
-                return;
-            }
         }
     }
 }
@@ -1341,8 +1391,6 @@ void SecureChatClient::checkCounter(int counter, unsigned char* received_counter
     if (counter == 0){
         __uint128_t server_counter_12 = this->server_counter;
         memset((unsigned char*)(&server_counter_12)+12, 0, 4);
-        Utility::printMessage("Received counter", (unsigned char*)&received_counter, sizeof(__uint128_t));
-        Utility::printMessage("Expected counter", (unsigned char*)&server_counter_12, sizeof(__uint128_t));
         if (server_counter_12 != received_counter || received_counter == this->base_counter){ cerr<<"Bad received server counter"<<endl; exit(1); }
         return;
     }
@@ -1458,5 +1506,3 @@ void SecureChatClient::sendLobby(){
     };    
     if (send(this->server_socket, enc_buf, enc_buf_len, 0) < 0){ cerr<<"ERR: Error in the sendto of the return to lobby message."<<endl; exit(1); }
 }
-
-// TODO: la check lobby non funziona perche riceve un messaggio diverso da quello che dovrebbe
